@@ -277,14 +277,7 @@ class DouyinChat:
         )
 
     async def _composer_visible(self) -> bool:
-        for selector in MESSAGE_INPUTS:
-            locator = self.page.locator(selector).first
-            try:
-                if await locator.count() and await locator.is_visible():
-                    return True
-            except Exception:
-                continue
-        return False
+        return await visible_selector(self.page, MESSAGE_INPUTS) is not None
 
 
 async def _visible_exact_text_in(container: Locator, selectors: tuple[str, ...], expected: str) -> bool:
@@ -385,13 +378,32 @@ async def _group_name_matches(locator: Locator, expected: str) -> bool:
         return False
 
 
-async def first_visible(page: Page, selectors: tuple[str, ...], timeout_ms: int = 15_000) -> Locator:
-    per_selector = max(500, timeout_ms // max(1, len(selectors)))
+POLL_MS = 250
+
+
+async def visible_selector(scope: Page | Locator, selectors: tuple[str, ...]) -> str | None:
+    """The first selector with a visible match right now, without waiting."""
     for selector in selectors:
-        locator = page.locator(selector).first
         try:
-            await locator.wait_for(state="visible", timeout=per_selector)
-            return locator
+            if await scope.locator(selector).first.is_visible():
+                return selector
         except Exception:
             continue
-    raise PageOperationError(f"找不到页面元素，已尝试: {', '.join(selectors)}")
+    return None
+
+
+async def wait_visible_selector(page: Page, selectors: tuple[str, ...], timeout_ms: int) -> str | None:
+    """Poll every selector together until one is visible; earlier selectors win ties."""
+    for _ in range(max(0, timeout_ms) // POLL_MS + 1):
+        selector = await visible_selector(page, selectors)
+        if selector is not None:
+            return selector
+        await page.wait_for_timeout(POLL_MS)
+    return None
+
+
+async def first_visible(page: Page, selectors: tuple[str, ...], timeout_ms: int = 15_000) -> Locator:
+    selector = await wait_visible_selector(page, selectors, timeout_ms)
+    if selector is None:
+        raise PageOperationError(f"找不到页面元素，已尝试: {', '.join(selectors)}")
+    return page.locator(selector).first

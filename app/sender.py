@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from playwright.async_api import Locator, Page
 
-from app.douyin import DouyinChat, PageOperationError, first_visible
+from app.douyin import DouyinChat, PageOperationError, first_visible, visible_selector
 from app.models import Message, Sticker
 from app.selectors import IMAGE_INPUTS, MESSAGE_INPUTS, STICKER_BUTTONS, STICKER_PANELS
 
@@ -30,30 +30,15 @@ SEND_BUTTONS = (
 
 
 async def _trigger_send(page: Page) -> None:
-    button = None
-    for selector in SEND_BUTTONS:
-        candidate = page.locator(selector).first
-        try:
-            if await candidate.count() and await candidate.is_visible():
-                button = candidate
-                break
-        except Exception:
-            continue
-    if button is not None:
-        await button.click()
+    selector = await visible_selector(page, SEND_BUTTONS)
+    if selector is not None:
+        await page.locator(selector).first.click()
     else:
         await page.keyboard.press("Enter")
 
 
 async def _publish_ready(page: Page) -> bool:
-    for selector in SEND_BUTTONS:
-        candidate = page.locator(selector).first
-        try:
-            if await candidate.count() and await candidate.is_visible():
-                return True
-        except Exception:
-            continue
-    return False
+    return await visible_selector(page, SEND_BUTTONS) is not None
 
 
 LATEST_OUTGOING_MESSAGE = (
@@ -328,14 +313,7 @@ async def _marker_visible(scope: Locator, selectors: tuple[str, ...]) -> bool:
     Scoped to ``scope`` (the single outgoing message) so unrelated page-wide
     spinners cannot influence the verdict.
     """
-    for selector in selectors:
-        marker = scope.locator(selector).first
-        try:
-            if await marker.count() and await marker.is_visible():
-                return True
-        except Exception:
-            continue
-    return False
+    return await visible_selector(scope, selectors) is not None
 
 
 async def _await_send_terminal_state(

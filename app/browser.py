@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from app.config import ConfigError, parse_auth_json
+from app.douyin import POLL_MS, visible_selector, wait_visible_selector
 from app.models import Settings
 from app.selectors import (
     DOUYIN_CHAT_URL,
@@ -36,10 +37,19 @@ class SearchBoxNotReadyError(RuntimeError):
     """私信页已打开但搜索框未就绪；说明渲染慢，而非登录失效。"""
 
 
-# 私信页是 SPA，domcontentloaded 之后搜索框由 JS 异步挂载，冷启动时可能超过
-# 单轮等待窗口。这里做有限次数重试，并在需要时 reload，避免把慢渲染误判为认证失效。
-SEARCH_BOX_RETRIES = 3
-_SEARCH_RETRY_DELAY_MS = 1_500
+# Text inside conversations is written by users. A friend's message, preview or
+# nickname saying "完成验证" or "登录后" must not read as Douyin's own prompt.
+_USER_CONTENT = ", ".join((
+    '[class*="messageMessageList"]',
+    '[class*="conversationConversationList"]',
+    '[data-e2e="conversation-item"]',
+    '[class*="SearchPanel"]',
+    '[class*="RightPanelHeader"]',
+))
+_SHOWN_OUTSIDE_USER_CONTENT_JS = """(elements, userContent) => elements.some(element =>
+    !element.closest(userContent)
+    && element.getClientRects().length > 0
+    && getComputedStyle(element).visibility !== 'hidden')"""
 
 
 # Collects only safe, whitelisted attributes. It deliberately reads no
@@ -115,96 +125,66 @@ async def open_douyin(settings: Settings) -> AsyncIterator[BrowserSession]:
 
 
 async def verify_login(page: Page, timeout_ms: int = 15_000) -> None:
-    if await _any_visible(page, RISK_MARKERS, timeout_ms=2_000):
+    if await _marker_shown(page, RISK_MARKERS):
         raise RiskControlError("抖音要求进行安全验证，任务已停止")
-    if await _any_visible(page, LOGIN_REQUIRED_MARKERS, timeout_ms=2_000):
+    if await _marker_shown(page, LOGIN_REQUIRED_MARKERS):
         raise AuthenticationError("抖音登录状态已失效")
-    if not await _any_visible(page, LOGIN_MARKERS, timeout_ms=timeout_ms):
+    if await wait_visible_selector(page, LOGIN_MARKERS, timeout_ms) is None:
         raise AuthenticationError("未检测到抖音私信页面，登录状态可能失效或页面结构已变化")
 
 
 async def open_private_messages(page: Page, timeout_ms: int = 15_000) -> None:
     await page.goto(DOUYIN_CHAT_URL, wait_until="domcontentloaded", timeout=45_000)
-    # 1. Explicit risk-control page takes priority, independently of login state.
-    if await _any_visible(page, RISK_MARKERS, timeout_ms=2_000):
-        raise RiskControlError("抖音私信页面要求进行安全验证，任务已停止")
-    # 2. An explicit login page is the only signal that lets us attribute to
-    #    expired credentials. Marker absence does not imply the credentials are
-    #    valid, so search-box detection (steps 3/4) is kept separate.
-    if await _any_visible(page, LOGIN_REQUIRED_MARKERS, timeout_ms=2_000):
-        raise AuthenticationError("进入抖音私信页面后登录状态失效")
-
-    # 3. Detect the friend search box. The chat page is a SPA whose search box is
-    #    mounted asynchronously after domcontentloaded; a single detection round
-    #    occasionally misses it on a cold runner. Retry a few times, reloading the
-    #    page when the first round fails, before concluding anything.
-    for attempt in range(1, SEARCH_BOX_RETRIES + 1):
-        matched = await _first_visible_selector(page, SEARCH_INPUTS, timeout_ms)
-        if matched is not None:
-            LOGGER.info("检测到好友搜索框: selector=%s, 第 %d 次尝试", matched, attempt)
+    # The chat page is a SPA that mounts the search box after domcontentloaded,
+    # sometimes slowly on a cold start. One reload usually fixes a page that
+    # never mounts it; only an explicit prompt counts as a login failure.
+    for attempt in (1, 2):
+        selector = await _wait_for_chat_page(page, timeout_ms)
+        if selector is not None:
+            LOGGER.info("检测到好友搜索框: selector=%s, 第 %d 次尝试", selector, attempt)
             await page.wait_for_timeout(3_000)
             return
-        # The search box is missing; a freshly shown login prompt may only have
-        # appeared during the wait, so re-check before deciding to retry.
-        if await _any_visible(page, RISK_MARKERS, timeout_ms=2_000):
-            raise RiskControlError("抖音私信页面要求进行安全验证，任务已停止")
-        if await _any_visible(page, LOGIN_REQUIRED_MARKERS, timeout_ms=2_000):
-            raise AuthenticationError("进入抖音私信页面后登录状态失效")
-        if attempt < SEARCH_BOX_RETRIES:
-            LOGGER.warning("未检测到好友搜索框，第 %d/%d 次尝试，准备重试", attempt, SEARCH_BOX_RETRIES)
-            if attempt == 1:
-                # Reload once: a fresh load usually mounts the SPA search box.
-                try:
-                    await page.reload(wait_until="domcontentloaded", timeout=45_000)
-                except Exception:
-                    LOGGER.exception("reload 失败，改为重新访问私信页面")
-                    await page.goto(DOUYIN_CHAT_URL, wait_until="domcontentloaded", timeout=45_000)
-            else:
-                await page.wait_for_timeout(_SEARCH_RETRY_DELAY_MS)
+        if attempt == 1:
+            LOGGER.warning("未检测到好友搜索框，刷新页面后重试")
+            try:
+                await page.reload(wait_until="domcontentloaded", timeout=45_000)
+            except Exception:
+                LOGGER.exception("reload 失败，改为重新访问私信页面")
+                await page.goto(DOUYIN_CHAT_URL, wait_until="domcontentloaded", timeout=45_000)
 
-    # 4. Search box is still missing after all attempts: emit a safe structural
-    #    diagnostic and choose the exception type based on evidence. Only an
-    #    explicit login marker justifies AuthenticationError; a page that is
-    #    already on /chat merely failed to render the search box in time.
     diagnostic = await _collect_safe_diagnostic(page, LOGIN_REQUIRED_MARKERS, RISK_MARKERS)
-    LOGGER.error("多次重试后仍未检测到好友搜索框，页面安全诊断:\n%s", diagnostic)
-    raise SearchBoxNotReadyError(f"私信页面已打开，但搜索框在 {SEARCH_BOX_RETRIES} 次重试后仍未就绪")
+    LOGGER.error("刷新后仍未检测到好友搜索框，页面安全诊断:\n%s", diagnostic)
+    raise SearchBoxNotReadyError("私信页面已打开，但刷新后搜索框仍未就绪")
 
 
-async def save_trace(session: BrowserSession, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    await session.context.tracing.stop(path=path)
+async def _wait_for_chat_page(page: Page, timeout_ms: int) -> str | None:
+    """Poll until the search box shows; raise as soon as a risk or login prompt does."""
+    for _ in range(timeout_ms // POLL_MS + 1):
+        if await _marker_shown(page, RISK_MARKERS):
+            raise RiskControlError("抖音私信页面要求进行安全验证，任务已停止")
+        if await _marker_shown(page, LOGIN_REQUIRED_MARKERS):
+            raise AuthenticationError("进入抖音私信页面后登录状态失效")
+        selector = await visible_selector(page, SEARCH_INPUTS)
+        if selector is not None:
+            return selector
+        await page.wait_for_timeout(POLL_MS)
+    return None
 
 
-async def _any_visible(page: Page, selectors: tuple[str, ...], timeout_ms: int) -> bool:
-    per_selector = max(250, timeout_ms // max(1, len(selectors)))
+async def _marker_shown(page: Page, selectors: tuple[str, ...]) -> bool:
+    """Whether a page prompt is visible right now outside user-written content."""
     for selector in selectors:
         try:
-            await page.locator(selector).first.wait_for(state="visible", timeout=per_selector)
-            return True
+            if await page.locator(selector).evaluate_all(_SHOWN_OUTSIDE_USER_CONTENT_JS, _USER_CONTENT):
+                return True
         except Exception:
             continue
     return False
 
 
-async def _first_visible_selector(
-    page: Page,
-    selectors: tuple[str, ...],
-    timeout_ms: int,
-) -> str | None:
-    """Return the first selector whose element becomes visible, or None.
-
-    Unlike ``_any_visible`` this also reports *which* selector matched, so the
-    diagnostic can distinguish a slow render from a structural change.
-    """
-    per_selector = max(250, timeout_ms // max(1, len(selectors)))
-    for selector in selectors:
-        try:
-            await page.locator(selector).first.wait_for(state="visible", timeout=per_selector)
-            return selector
-        except Exception:
-            continue
-    return None
+async def save_trace(session: BrowserSession, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    await session.context.tracing.stop(path=path)
 
 
 async def _collect_safe_diagnostic(
@@ -225,9 +205,9 @@ async def _collect_safe_diagnostic(
 
     inputs = [_safe_element(item) for item in snapshot.get("inputs", [])]
     textareas = [_safe_element(item) for item in snapshot.get("textareas", [])]
-    login_marker = await _any_visible(page, login_markers, timeout_ms=1_000)
-    risk_marker = await _any_visible(page, risk_markers, timeout_ms=1_000)
-    private_marker = await _any_visible(page, LOGIN_MARKERS, timeout_ms=1_000)
+    login_marker = await _marker_shown(page, login_markers)
+    risk_marker = await _marker_shown(page, risk_markers)
+    private_marker = await visible_selector(page, LOGIN_MARKERS) is not None
 
     parts = [
         f"url={url}",

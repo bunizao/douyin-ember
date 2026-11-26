@@ -49,14 +49,25 @@ async def test_persistent_profile_reuses_browser_state_without_cookie_import(tmp
     playwright.stop.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_opens_chat_directly_before_checking_login() -> None:
+def _chat_page() -> MagicMock:
     page = MagicMock()
     page.goto = AsyncMock()
+    page.reload = AsyncMock()
     page.wait_for_timeout = AsyncMock()
+    page.url = "https://www.douyin.com/chat"
+    page.title = AsyncMock(return_value="抖音私信")
+    page.evaluate = AsyncMock(
+        return_value={"inputs": [], "textareas": [], "contenteditable_count": 0, "role_textbox_count": 0}
+    )
+    return page
 
-    with patch("app.browser._any_visible", new=AsyncMock(side_effect=[False, False])):
-        with patch("app.browser._first_visible_selector", new=AsyncMock(return_value='input[placeholder*="搜索"]')):
+
+@pytest.mark.asyncio
+async def test_opens_chat_directly_before_checking_login() -> None:
+    page = _chat_page()
+
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=False)):
+        with patch("app.browser.visible_selector", new=AsyncMock(return_value='input[placeholder*="搜索"]')):
             await open_private_messages(page)
 
     page.goto.assert_awaited_once_with(DOUYIN_CHAT_URL, wait_until="domcontentloaded", timeout=45_000)
@@ -91,8 +102,9 @@ async def test_safe_diagnostic_excludes_content_and_nicknames() -> None:
         }
     )
 
-    with patch("app.browser._any_visible", new=AsyncMock(return_value=False)):
-        diagnostic = await _collect_safe_diagnostic(page, LOGIN_REQUIRED_MARKERS, RISK_MARKERS)
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=False)):
+        with patch("app.browser.visible_selector", new=AsyncMock(return_value=None)):
+            diagnostic = await _collect_safe_diagnostic(page, LOGIN_REQUIRED_MARKERS, RISK_MARKERS)
 
     # Safe attributes must show up.
     assert "url=https://www.douyin.com/chat" in diagnostic
@@ -114,39 +126,25 @@ async def test_safe_diagnostic_excludes_content_and_nicknames() -> None:
 
 @pytest.mark.asyncio
 async def test_open_private_messages_logs_diagnostic_when_search_missing(caplog) -> None:
-    page = MagicMock()
-    page.goto = AsyncMock()
-    page.reload = AsyncMock()
-    page.wait_for_timeout = AsyncMock()
-    page.url = "https://www.douyin.com/chat"
-    page.title = AsyncMock(return_value="抖音私信")
-    page.evaluate = AsyncMock(
-        return_value={
-            "inputs": [],
-            "textareas": [],
-            "contenteditable_count": 0,
-            "role_textbox_count": 0,
-        }
-    )
+    page = _chat_page()
 
-    with patch("app.browser._any_visible", new=AsyncMock(return_value=False)):
-        with patch("app.browser._first_visible_selector", new=AsyncMock(return_value=None)):
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=False)):
+        with patch("app.browser.visible_selector", new=AsyncMock(return_value=None)):
             with caplog.at_level(logging.ERROR, logger="douyin_sender"):
-                with pytest.raises(SearchBoxNotReadyError, match="重试后仍未就绪"):
-                    await open_private_messages(page)
+                with pytest.raises(SearchBoxNotReadyError, match="刷新后搜索框仍未就绪"):
+                    await open_private_messages(page, timeout_ms=500)
 
-    assert "多次重试后仍未检测到好友搜索框，页面安全诊断" in caplog.text
+    assert "页面安全诊断" in caplog.text
     assert "role_textbox_count=0" in caplog.text
+    page.reload.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_search_hit_emits_no_diagnostic(caplog) -> None:
-    page = MagicMock()
-    page.goto = AsyncMock()
-    page.wait_for_timeout = AsyncMock()
+    page = _chat_page()
 
-    with patch("app.browser._any_visible", new=AsyncMock(side_effect=[False, False])):
-        with patch("app.browser._first_visible_selector", new=AsyncMock(return_value='input[placeholder*="搜索"]')):
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=False)):
+        with patch("app.browser.visible_selector", new=AsyncMock(return_value='input[placeholder*="搜索"]')):
             with caplog.at_level(logging.ERROR, logger="douyin_sender"):
                 await open_private_messages(page)
 
@@ -155,59 +153,90 @@ async def test_search_hit_emits_no_diagnostic(caplog) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_box_missing_recovers_on_retry() -> None:
-    page = MagicMock()
-    page.goto = AsyncMock()
-    page.reload = AsyncMock()
-    page.wait_for_timeout = AsyncMock()
+async def test_search_box_found_without_waiting_on_absent_markers() -> None:
+    page = _chat_page()
+    marker_checks = AsyncMock(return_value=False)
 
-    # 首轮未就绪，reload 后第二轮命中；login/risk 标记始终不出现。
-    with patch("app.browser._any_visible", new=AsyncMock(return_value=False)):
-        with patch(
-            "app.browser._first_visible_selector",
-            new=AsyncMock(side_effect=[None, 'input[placeholder="搜索"]']),
-        ):
+    with patch("app.browser._marker_shown", new=marker_checks):
+        with patch("app.browser.visible_selector", new=AsyncMock(side_effect=[None, None, 'input[placeholder="搜索"]'])):
             await open_private_messages(page)
+
+    polls = [call.args[0] for call in page.wait_for_timeout.await_args_list]
+    assert polls == [250, 250, 3_000]
+    page.reload.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_box_missing_recovers_after_reload() -> None:
+    page = _chat_page()
+    found = iter([None, None, None, 'input[placeholder="搜索"]'])
+
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=False)):
+        with patch("app.browser.visible_selector", new=AsyncMock(side_effect=lambda *_: next(found))):
+            await open_private_messages(page, timeout_ms=500)
 
     page.reload.assert_awaited_once_with(wait_until="domcontentloaded", timeout=45_000)
 
 
 @pytest.mark.asyncio
 async def test_search_box_falls_back_to_goto_when_reload_fails() -> None:
-    page = MagicMock()
-    page.goto = AsyncMock()
+    page = _chat_page()
     page.reload = AsyncMock(side_effect=RuntimeError("reload 失败"))
-    page.wait_for_timeout = AsyncMock()
+    found = iter([None, None, None, 'input[placeholder*="搜索"]'])
 
-    with patch("app.browser._any_visible", new=AsyncMock(return_value=False)):
-        with patch(
-            "app.browser._first_visible_selector",
-            new=AsyncMock(side_effect=[None, 'input[placeholder*="搜索"]']),
-        ):
-            await open_private_messages(page)
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=False)):
+        with patch("app.browser.visible_selector", new=AsyncMock(side_effect=lambda *_: next(found))):
+            await open_private_messages(page, timeout_ms=500)
 
     page.reload.assert_awaited_once()
-    assert page.goto.await_count >= 2  # 初次访问 + reload 失败后的重新访问
+    assert page.goto.await_count == 2
 
 
 @pytest.mark.asyncio
-async def test_risk_control_still_raises_before_search_check() -> None:
-    page = MagicMock()
-    page.goto = AsyncMock()
+async def test_risk_control_raises_before_search_check() -> None:
+    page = _chat_page()
+    search = AsyncMock()
 
-    with patch("app.browser._any_visible", new=AsyncMock(return_value=True)):
-        with pytest.raises(RiskControlError, match="安全验证"):
-            await open_private_messages(page)
+    with patch("app.browser._marker_shown", new=AsyncMock(return_value=True)):
+        with patch("app.browser.visible_selector", new=search):
+            with pytest.raises(RiskControlError, match="安全验证"):
+                await open_private_messages(page)
+
+    search.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_login_required_still_raises_before_search_check() -> None:
-    page = MagicMock()
-    page.goto = AsyncMock()
+async def test_login_required_raises_before_search_check() -> None:
+    page = _chat_page()
 
-    with patch("app.browser._any_visible", new=AsyncMock(side_effect=[False, True])):
+    with patch("app.browser._marker_shown", new=AsyncMock(side_effect=[False, True])):
         with pytest.raises(AuthenticationError, match="登录状态失效"):
             await open_private_messages(page)
+
+
+@pytest.mark.asyncio
+async def test_markers_ignore_text_written_by_friends() -> None:
+    from playwright.async_api import async_playwright
+
+    from app.browser import _marker_shown
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.set_content(
+                '<div class="conversationConversationListwrapper"><div data-e2e="conversation-item">'
+                "<span>请先完成验证</span></div></div>"
+                '<div class="messageMessageListlist"><p>登录后再说</p></div>'
+                '<div style="display:none">安全验证</div>'
+            )
+            assert not await _marker_shown(page, RISK_MARKERS)
+            assert not await _marker_shown(page, LOGIN_REQUIRED_MARKERS)
+
+            await page.evaluate("document.body.insertAdjacentHTML('beforeend', '<div>请完成安全验证</div>')")
+            assert await _marker_shown(page, RISK_MARKERS)
+        finally:
+            await browser.close()
 
 
 def test_normalizes_cookie_editor_export() -> None:
