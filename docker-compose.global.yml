@@ -1,6 +1,6 @@
 services:
   douyin-auto-fire:
-    image: ghcr.io/unmev/douyin-auto-fire:latest
+    image: ${DOUYIN_IMAGE:-ghcr.io/bunizao/douyin-auto-fire:latest}
     container_name: douyin-auto-fire
     restart: unless-stopped
     environment:
