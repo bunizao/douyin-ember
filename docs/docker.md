@@ -1,8 +1,8 @@
 # Docker 部署教程
 
-本教程介绍如何使用 Docker 部署 `douyin-auto-fire`，支持单账号、多账号、钉钉通知和容器内 Cron 定时运行。
+本教程介绍如何使用 Docker 部署 `douyin-ember`，支持单账号、多账号、钉钉通知和容器内 Cron 定时运行。
 
-Fork image: `ghcr.io/bunizao/douyin-auto-fire:latest`. Use `docker login ghcr.io` if the package requires authentication.
+Fork image: `ghcr.io/bunizao/douyin-ember:latest`. Use `docker login ghcr.io` if the package requires authentication.
 
 > 第一次使用建议先配置 1 个账号、1 个好友、1 条文字消息，并先执行 Dry Run。单账号确认正常后，再增加多账号、原生表情、随机消息或钉钉通知。
 
@@ -11,8 +11,8 @@ Fork image: `ghcr.io/bunizao/douyin-auto-fire:latest`. Use `docker login ghcr.io
 ## 1. 准备部署目录
 
 ```bash
-mkdir -p ~/douyin-auto-fire/artifacts ~/douyin-auto-fire/config
-cd ~/douyin-auto-fire
+mkdir -p ~/douyin-ember/artifacts ~/douyin-ember/config
+cd ~/douyin-ember
 ```
 
 ---
@@ -20,7 +20,7 @@ cd ~/douyin-auto-fire
 ## 2. 下载 Compose 文件
 
 ```bash
-curl -fL https://raw.githubusercontent.com/bunizao/douyin-auto-fire/main/docker-compose.yml -o docker-compose.yml
+curl -fL https://raw.githubusercontent.com/bunizao/douyin-ember/main/docker-compose.yml -o docker-compose.yml
 ```
 
 ---
@@ -211,7 +211,7 @@ WEBHOOK_TEMPLATE={"content":"🔥 **抖音任务 {task_id}**\n\n{status}\n成功
 python scripts/check_webhook.py
 
 # 或在容器内测试
-docker compose exec douyin-auto-fire python scripts/check_webhook.py
+docker compose exec douyin-ember python scripts/check_webhook.py
 ```
 
 通知会包含本次任务模式、成功/失败人数和失败原因。Docker 环境下如果配置的是全局 `.env`，多账号默认都会继承同一个通知配置；如果希望不同账号使用不同通知，可以在对应账号的环境文件里单独覆盖这些变量。
@@ -245,7 +245,7 @@ docker compose logs -f
 不要第一次就直接真实发送。
 
 ```bash
-docker exec -it douyin-auto-fire python run.py --dry-run
+docker exec -it douyin-ember python run.py --dry-run
 ```
 
 Dry Run 会检查：
@@ -261,7 +261,7 @@ Dry Run 不会真实发送消息。
 确认没有问题后，再运行：
 
 ```bash
-docker exec -it douyin-auto-fire python run.py
+docker exec -it douyin-ember python run.py
 ```
 
 ---
@@ -281,7 +281,7 @@ Docker 也支持多账号。程序只要检测到：
 宿主机可以整理成：
 
 ```text
-douyin-auto-fire/
+douyin-ember/
 ├── docker-compose.yml
 ├── .env
 ├── config.json                  # 单账号模式使用，多账号时可以保留
@@ -394,7 +394,7 @@ nano config/tasks/account2.json
 
 ```bash
 docker compose up -d
-docker exec -it douyin-auto-fire python run.py --dry-run
+docker exec -it douyin-ember python run.py --dry-run
 ```
 
 日志中会显示类似：
@@ -415,7 +415,7 @@ artifacts/account2/
 确认 Dry Run 正常后，再执行真实发送：
 
 ```bash
-docker exec -it douyin-auto-fire python run.py
+docker exec -it douyin-ember python run.py
 ```
 
 > 删除或重命名 `config/accounts.json` 后，程序会恢复到原来的单账号模式。
@@ -427,7 +427,7 @@ docker exec -it douyin-auto-fire python run.py
 单账号最少需要：
 
 ```text
-douyin-auto-fire/
+douyin-ember/
 ├── docker-compose.yml
 ├── .env
 ├── config.json
@@ -467,7 +467,7 @@ docker compose up -d
 如果 Compose 文件本身有更新，可以重新下载。
 
 ```bash
-curl -fL https://raw.githubusercontent.com/bunizao/douyin-auto-fire/main/docker-compose.yml -o docker-compose.yml
+curl -fL https://raw.githubusercontent.com/bunizao/douyin-ember/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d --pull always
 ```
 
@@ -488,10 +488,10 @@ docker compose ps
 docker compose logs -f
 
 # Dry Run
-docker exec -it douyin-auto-fire python run.py --dry-run
+docker exec -it douyin-ember python run.py --dry-run
 
 # 立即真实运行一次
-docker exec -it douyin-auto-fire python run.py
+docker exec -it douyin-ember python run.py
 
 # 重启
 docker compose restart

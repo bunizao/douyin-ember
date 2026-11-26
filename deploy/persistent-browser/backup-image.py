@@ -17,7 +17,7 @@ def main():
     with (BASE / ".scheduler.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         configured = subprocess.run(
-            ["docker", "compose", "--profile", "scheduled", "config", "--images", "douyin-auto-fire"], cwd=BASE,
+            ["docker", "compose", "--profile", "scheduled", "config", "--images", "douyin-ember"], cwd=BASE,
             capture_output=True, text=True, check=True, timeout=30,
         )
         images = set(configured.stdout.split())

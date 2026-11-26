@@ -1,6 +1,6 @@
 # 安全策略
 
-感谢你帮助改进 `douyin-auto-fire` 的安全性。
+感谢你帮助改进 `douyin-ember` 的安全性。
 
 ## 支持范围
 

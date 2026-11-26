@@ -1,9 +1,9 @@
-name: douyin-auto-fire
+name: douyin-ember
 
 services:
-  douyin-auto-fire:
+  douyin-ember:
     image: ${DOUYIN_IMAGE:?Set DOUYIN_IMAGE to the verified image digest}
-    container_name: douyin-auto-fire
+    container_name: douyin-ember
     profiles: [scheduled]
     restart: unless-stopped
     cpus: 1.0

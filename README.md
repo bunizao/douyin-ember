@@ -1,4 +1,4 @@
-# Douyin Auto Fire
+# Douyin Ember
 
 A self-hosted sender that keeps Douyin chat streaks active.
 
@@ -38,11 +38,11 @@ Place `config.json` and `cookie.json` next to the Compose file.
 
 ```sh
 docker compose pull
-docker compose run --rm --no-deps --entrypoint python douyin-auto-fire run.py --dry-run
+docker compose run --rm --no-deps --entrypoint python douyin-ember run.py --dry-run
 docker compose up -d
 ```
 
-GitHub Actions tests pushes to `main` and publishes AMD64 and ARM64 images to `ghcr.io/bunizao/douyin-auto-fire` with `latest` and commit tags. Authenticate to GHCR if the package is private. Run `docker compose up -d --pull always` on the host to install updates.
+GitHub Actions tests pushes to `main` and publishes AMD64 and ARM64 images to `ghcr.io/bunizao/douyin-ember` with `latest` and commit tags. Authenticate to GHCR if the package is private. Run `docker compose up -d --pull always` on the host to install updates.
 
 For a persistent browser profile and a host timer, see the [systemd deployment](deploy/persistent-browser/README.md).
 

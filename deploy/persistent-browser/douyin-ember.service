@@ -6,8 +6,8 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/douyin-auto-fire
-ExecStart=/usr/bin/python3 /opt/douyin-auto-fire/scheduled-run.py
+WorkingDirectory=/opt/douyin-ember
+ExecStart=/usr/bin/python3 /opt/douyin-ember/scheduled-run.py
 ExecStopPost=/bin/sh -c '/usr/bin/docker rm -f douyin-scheduled-run >/dev/null 2>&1 || true'
 TimeoutStartSec=15min
 TimeoutStopSec=40s

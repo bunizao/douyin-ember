@@ -1,6 +1,6 @@
 # Linux 云服务器部署教程
 
-本教程介绍如何在 Ubuntu / Debian 云服务器上部署 `douyin-auto-fire`，支持单账号、多账号、钉钉通知、Dry Run 和 systemd 定时运行。
+本教程介绍如何在 Ubuntu / Debian 云服务器上部署 `douyin-ember`，支持单账号、多账号、钉钉通知、Dry Run 和 systemd 定时运行。
 
 推荐系统：Ubuntu 22.04 / 24.04、Debian 12 / 13。建议至少准备约 2 GB 内存，低内存机器可以增加 Swap。
 
@@ -46,7 +46,7 @@ sudo useradd --system \
 ## 4. 下载项目
 
 ```bash
-sudo git clone https://github.com/bunizao/douyin-auto-fire.git /opt/douyin-auto-sender
+sudo git clone https://github.com/bunizao/douyin-ember.git /opt/douyin-auto-sender
 sudo chown -R douyin-sender:douyin-sender /opt/douyin-auto-sender
 cd /opt/douyin-auto-sender
 ```
@@ -106,15 +106,15 @@ sudo -u douyin-sender nano config.json
 为了避免把 Cookie 放到 Git 仓库，推荐单独放在 `/etc`：
 
 ```bash
-sudo mkdir -p /etc/douyin-auto-fire
-sudo nano /etc/douyin-auto-fire/cookie.json
+sudo mkdir -p /etc/douyin-ember
+sudo nano /etc/douyin-ember/cookie.json
 ```
 
 粘贴 Cookie JSON 后设置权限：
 
 ```bash
-sudo chown root:douyin-sender /etc/douyin-auto-fire/cookie.json
-sudo chmod 640 /etc/douyin-auto-fire/cookie.json
+sudo chown root:douyin-sender /etc/douyin-ember/cookie.json
+sudo chmod 640 /etc/douyin-ember/cookie.json
 ```
 
 ---
@@ -128,7 +128,7 @@ sudo -u douyin-sender nano /opt/douyin-auto-sender/.env
 单账号推荐：
 
 ```env
-DOUYIN_COOKIE=/etc/douyin-auto-fire/cookie.json
+DOUYIN_COOKIE=/etc/douyin-ember/cookie.json
 TASK_CONFIG=/opt/douyin-auto-sender/config.json
 ARTIFACTS_DIR=/opt/douyin-auto-sender/artifacts
 HEADLESS=true
@@ -286,7 +286,7 @@ sudo -u douyin-sender nano .env.account1
 ```
 
 ```env
-DOUYIN_COOKIE=/etc/douyin-auto-fire/account1.json
+DOUYIN_COOKIE=/etc/douyin-ember/account1.json
 TASK_CONFIG=config/tasks/account1.json
 ```
 
@@ -297,7 +297,7 @@ sudo -u douyin-sender nano .env.account2
 ```
 
 ```env
-DOUYIN_COOKIE=/etc/douyin-auto-fire/account2.json
+DOUYIN_COOKIE=/etc/douyin-ember/account2.json
 TASK_CONFIG=config/tasks/account2.json
 ```
 
@@ -311,10 +311,10 @@ DINGTALK_SECRET=SECxxxx
 ### 11.4 保存每个账号 Cookie
 
 ```bash
-sudo nano /etc/douyin-auto-fire/account1.json
-sudo nano /etc/douyin-auto-fire/account2.json
-sudo chown root:douyin-sender /etc/douyin-auto-fire/account*.json
-sudo chmod 640 /etc/douyin-auto-fire/account*.json
+sudo nano /etc/douyin-ember/account1.json
+sudo nano /etc/douyin-ember/account2.json
+sudo chown root:douyin-sender /etc/douyin-ember/account*.json
+sudo chmod 640 /etc/douyin-ember/account*.json
 ```
 
 ### 11.5 保存每个账号任务配置

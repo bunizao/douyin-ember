@@ -1,7 +1,7 @@
 services:
-  douyin-auto-fire:
+  douyin-ember:
     init: true
-    hostname: douyin-auto-fire
+    hostname: douyin-ember
     mem_limit: 1536m
     memswap_limit: 2g
     entrypoint:

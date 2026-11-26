@@ -1,6 +1,6 @@
 # Windows 电脑部署教程
 
-本教程介绍如何在 Windows 电脑上运行 `douyin-auto-fire`，支持扫码登录、Cookie 登录、单账号、多账号、钉钉通知、Dry Run 和任务计划程序定时运行。
+本教程介绍如何在 Windows 电脑上运行 `douyin-ember`，支持扫码登录、Cookie 登录、单账号、多账号、钉钉通知、Dry Run 和任务计划程序定时运行。
 
 > Windows 电脑需要在任务执行时保持开机并联网。第一次建议先配置 1 个账号、1 个好友、1 条文字消息，先把单账号跑通，再增加多账号或通知。
 
@@ -43,14 +43,14 @@ git --version
 ## 3. 下载项目
 
 ```powershell
-git clone https://github.com/bunizao/douyin-auto-fire.git
-cd douyin-auto-fire
+git clone https://github.com/bunizao/douyin-ember.git
+cd douyin-ember
 ```
 
 建议放在固定路径，例如：
 
 ```text
-C:\douyin-auto-fire
+C:\douyin-ember
 ```
 
 ---
@@ -390,17 +390,17 @@ taskschd.msc
 点击“创建基本任务”，名称例如：
 
 ```text
-Douyin Auto Fire
+Douyin Ember
 ```
 
 触发器选择“每天”，设置运行时间。
 
 ### 程序或脚本
 
-假设项目位于 `C:\douyin-auto-fire`：
+假设项目位于 `C:\douyin-ember`：
 
 ```text
-C:\douyin-auto-fire\.venv\Scripts\python.exe
+C:\douyin-ember\.venv\Scripts\python.exe
 ```
 
 ### 添加参数
@@ -412,7 +412,7 @@ run.py
 ### 起始于
 
 ```text
-C:\douyin-auto-fire
+C:\douyin-ember
 ```
 
 > “起始于”必须填写项目根目录，否则程序可能找不到 `.env`、`config.json` 或 `config\accounts.json`。
@@ -461,7 +461,7 @@ Get-Content .\artifacts\account2\run.log -Tail 100
 ## 16. 更新项目
 
 ```powershell
-cd C:\douyin-auto-fire
+cd C:\douyin-ember
 git pull
 uv sync --locked --no-dev
 ```

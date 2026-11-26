@@ -41,7 +41,7 @@ def test_missing_image_is_restored_before_running_sender(monkeypatch, tmp_path, 
     def execute(command, **kwargs):
         nonlocal restored
         calls.append(command)
-        if command == ['docker', 'compose', '--profile', 'scheduled', 'config', '--images', 'douyin-auto-fire']:
+        if command == ['docker', 'compose', '--profile', 'scheduled', 'config', '--images', 'douyin-ember']:
             return subprocess.CompletedProcess(command, 0, 'douyin:test\n')
         if command[:3] == ['docker', 'image', 'inspect']:
             return subprocess.CompletedProcess(command, 0 if restored else 1, 'sha256:verified\n' if restored else '')
@@ -89,7 +89,7 @@ def test_invalid_recovery_never_starts_sender(monkeypatch, tmp_path, failure):
     def execute(command, **kwargs):
         nonlocal restored
         calls.append(command)
-        if command == ['docker', 'compose', '--profile', 'scheduled', 'config', '--images', 'douyin-auto-fire']:
+        if command == ['docker', 'compose', '--profile', 'scheduled', 'config', '--images', 'douyin-ember']:
             return subprocess.CompletedProcess(command, 0, 'douyin:test\n')
         if command[:3] == ['docker', 'image', 'inspect']:
             return subprocess.CompletedProcess(command, 0 if restored else 1, 'sha256:unexpected\n' if restored else '')

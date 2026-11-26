@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你愿意参与 `douyin-auto-fire`。
+感谢你愿意参与 `douyin-ember`。
 
 ## 提交问题前
 

@@ -15,7 +15,7 @@ CONTAINER = "douyin-scheduled-run"
 
 def ensure_image():
     configured = subprocess.run(
-        ["docker", "compose", "--profile", "scheduled", "config", "--images", "douyin-auto-fire"], cwd=BASE,
+        ["docker", "compose", "--profile", "scheduled", "config", "--images", "douyin-ember"], cwd=BASE,
         capture_output=True, text=True, check=True, timeout=30,
     )
     images = set(configured.stdout.split())
@@ -80,7 +80,7 @@ def run():
         write_status(status)
         command = [
             "docker", "compose", "run", "--rm", "--no-deps", "--pull", "never", "-T", "--name", CONTAINER,
-            "--entrypoint", "xvfb-run", "douyin-auto-fire",
+            "--entrypoint", "xvfb-run", "douyin-ember",
             "--auth-file=/tmp/douyin.xauth", "--server-num=99",
             "--server-args=-screen 0 1600x1200x24", "python", "run.py",
         ]

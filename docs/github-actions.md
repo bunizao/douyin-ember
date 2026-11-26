@@ -1,6 +1,6 @@
 # GitHub Actions 使用教程
 
-本教程介绍如何使用 **GitHub Actions** 运行 `douyin-auto-fire`。
+本教程介绍如何使用 **GitHub Actions** 运行 `douyin-ember`。
 
 使用这种方式不需要自己准备服务器，也不需要电脑每天开机。配置完成后，GitHub Actions 会按照设定时间自动运行任务。
 
@@ -12,7 +12,7 @@
 
 打开项目仓库：
 
-**https://github.com/bunizao/douyin-auto-fire**
+**https://github.com/bunizao/douyin-ember**
 
 点击右上角 **Fork**，将项目 Fork 到自己的 GitHub 账号。
 
@@ -317,7 +317,7 @@ Generate new token
 1. `Token name`：可以填写 `cron-job`；
 2. `Expiration`：选择合适的有效期，并记住到期后需要重新创建；
 3. `Repository access`：选择 `Only select repositories`；
-4. 只勾选自己 Fork 的 `douyin-auto-fire` 仓库；
+4. 只勾选自己 Fork 的 `douyin-ember` 仓库；
 5. 在 `Repository permissions` 中找到 `Actions`，设置为 `Read and write`。
 
 创建完成后会得到类似：
@@ -349,13 +349,13 @@ CREATE CRONJOB
 在 `URL` 中填写：
 
 ```text
-https://api.github.com/repos/你的GitHub用户名/douyin-auto-fire/actions/workflows/send.yml/dispatches
+https://api.github.com/repos/你的GitHub用户名/douyin-ember/actions/workflows/send.yml/dispatches
 ```
 
 例如原项目仓库对应的地址是：
 
 ```text
-https://api.github.com/repos/bunizao/douyin-auto-fire/actions/workflows/send.yml/dispatches
+https://api.github.com/repos/bunizao/douyin-ember/actions/workflows/send.yml/dispatches
 ```
 
 如果使用的是自己 Fork 的仓库，必须将 `unmev` 换成你自己的 GitHub 用户名。
@@ -465,7 +465,7 @@ GitHub API 成功接收触发请求时通常返回状态码：
 
 ```text
 URL：
-https://api.github.com/repos/你的GitHub用户名/douyin-auto-fire/actions/workflows/send.yml/dispatches
+https://api.github.com/repos/你的GitHub用户名/douyin-ember/actions/workflows/send.yml/dispatches
 
 Method：
 POST
@@ -779,4 +779,4 @@ Fork 项目
 
 ## 返回项目主页
 
-👉 [返回 douyin-auto-fire](../README.md)
+👉 [返回 douyin-ember](../README.md)

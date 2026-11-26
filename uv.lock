@@ -12,7 +12,7 @@ wheels = [
 ]
 
 [[package]]
-name = "douyin-auto-fire"
+name = "douyin-ember"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

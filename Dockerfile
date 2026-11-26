@@ -1,6 +1,6 @@
 FROM python:3.11-slim-bookworm
 
-LABEL org.opencontainers.image.source="https://github.com/bunizao/douyin-auto-fire"
+LABEL org.opencontainers.image.source="https://github.com/bunizao/douyin-ember"
 LABEL org.opencontainers.image.description="Douyin streak message sender"
 
 ENV PATH="/app/.venv/bin:$PATH" \

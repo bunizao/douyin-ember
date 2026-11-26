@@ -5,7 +5,7 @@ Description=Run Douyin streak task daily at 08:00 China time
 OnCalendar=*-*-* 08:00:00 Asia/Shanghai
 Persistent=true
 AccuracySec=1min
-Unit=douyin-auto-fire.service
+Unit=douyin-ember.service
 
 [Install]
 WantedBy=timers.target
