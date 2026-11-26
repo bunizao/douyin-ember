@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+HISTORY_RETENTION = timedelta(days=7)
 
 
 class AlreadyRunningError(RuntimeError):
@@ -23,7 +26,7 @@ def run_date(timezone: str) -> str:
 class History:
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.entries = self._load()
+        self.entries = _drop_expired(self._load())
 
     def key(self, task_id: str, run_date: str, target: str, message_id: str) -> str:
         return f"{task_id}:{run_date}:{target}:{message_id}"
@@ -71,6 +74,21 @@ class History:
             return {}
         except json.JSONDecodeError as exc:
             raise ValueError(f"发送历史损坏，为避免重复发送，任务已停止: {self.path}") from exc
+
+
+def _drop_expired(entries: dict) -> dict:
+    """Keys carry the run date, so only recent entries can ever match again."""
+    cutoff = datetime.now().astimezone() - HISTORY_RETENTION
+    kept = {}
+    for key, entry in entries.items():
+        stamp = entry.get("finished_at") or entry.get("started_at")
+        try:
+            if datetime.fromisoformat(stamp) < cutoff:
+                continue
+        except (TypeError, ValueError):
+            pass
+        kept[key] = entry
+    return kept
 
 
 @contextmanager

@@ -33,3 +33,20 @@ def test_run_lock_rejects_second_process(tmp_path: Path) -> None:
 
     with run_lock(path):
         assert path.exists()
+
+
+def test_history_drops_entries_older_than_a_week(tmp_path: Path) -> None:
+    import json
+    from datetime import datetime, timedelta
+
+    path = tmp_path / "history.json"
+    now = datetime.now().astimezone()
+    path.write_text(json.dumps({
+        "old": {"status": "success", "finished_at": (now - timedelta(days=8)).isoformat()},
+        "recent": {"status": "unknown", "started_at": (now - timedelta(days=1)).isoformat()},
+        "unstamped": {"status": "success"},
+    }), encoding="utf-8")
+
+    history = History(path)
+
+    assert set(history.entries) == {"recent", "unstamped"}
