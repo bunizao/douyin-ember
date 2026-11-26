@@ -3,8 +3,30 @@ from pathlib import Path
 
 import pytest
 
-from app.config import ConfigError, load_task
+from app.config import ConfigError, load_settings, load_task
 from app.models import Settings
+
+
+def test_loads_persistent_profile_without_cookie(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BROWSER_USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.delenv("DOUYIN_COOKIE", raising=False)
+    monkeypatch.delenv("DOUYIN_STORAGE_STATE", raising=False)
+
+    settings = load_settings(tmp_path / "missing.env")
+
+    assert settings.browser_user_data_dir == tmp_path / "profile"
+    assert settings.cookie is None
+    assert settings.storage_state is None
+
+
+def test_rejects_importing_cookie_into_persistent_profile(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BROWSER_USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setenv("DOUYIN_COOKIE", "cookie.json")
+
+    with pytest.raises(ConfigError, match="BROWSER_USER_DATA_DIR"):
+        load_settings(tmp_path / "missing.env")
 
 
 def settings_for(path: Path) -> Settings:
@@ -99,6 +121,37 @@ def test_loads_simple_config(tmp_path: Path) -> None:
 
     assert len(task.targets) == 2
     assert task.targets[1].messages[0].content == "你好"
+
+
+def test_loads_bound_friends_with_shared_messages(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "friends": [{"name": "Old nickname", "conversation_id": "0:1:123:456"}, "Legacy friend"],
+            "messages": [{"type": "text", "value": "Good morning"}],
+        },
+    )
+
+    task = load_task(settings_for(path))
+
+    assert [target.conversation_id for target in task.targets] == ["0:1:123:456", None]
+    assert task.targets[0].messages == task.targets[1].messages
+
+
+def test_rejects_duplicate_conversation_ids(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "friends": [
+                {"name": "Old name", "conversation_id": "0:1:123:456"},
+                {"name": "New name", "conversation_id": "0:1:123:456"},
+            ],
+            "messages": [{"type": "text", "value": "Good morning"}],
+        },
+    )
+
+    with pytest.raises(ConfigError, match="Duplicate conversation_id"):
+        load_task(settings_for(path))
 
 
 def test_loads_target_open_retries_and_timeout(tmp_path: Path) -> None:

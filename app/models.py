@@ -21,6 +21,7 @@ class Message:
 class Target:
     name: str
     messages: tuple[Message, ...]
+    conversation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class Settings:
     webhook_url: str | None = None
     webhook_headers: dict[str, str] | None = None
     webhook_template: str | None = None
+    browser_user_data_dir: Path | None = None
 
 
 @dataclass(frozen=True)

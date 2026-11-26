@@ -12,7 +12,25 @@ class PageOperationError(RuntimeError):
     pass
 
 
+class TargetUnavailableError(PageOperationError):
+    pass
+
+
 RETRY_DELAY_MS = 3_000
+_CONVERSATION_LIST = ".conversationConversationListwrapper"
+_CONVERSATION_ROW = '[data-e2e="conversation-item"]'
+_CONVERSATION_HEADER = ".RightPanelHeaderconvHeader:visible"
+
+# The web app exposes the conversation ID in the mounted list and chat components.
+# Use the same ID in both places so a reordered row cannot change the recipient.
+_REACT_CONVERSATION_ID = """(element, property) => {
+    const key = Object.keys(element).find(key => key.startsWith("__reactFiber$"));
+    for (let fiber = key && element[key]; fiber; fiber = fiber.return) {
+        const id = fiber.memoizedProps?.[property]?.id;
+        if (typeof id === "string" && id) return id;
+    }
+    return null;
+}"""
 
 
 class DouyinChat:
@@ -26,11 +44,16 @@ class DouyinChat:
         self.timeout_ms = timeout_ms
         self.confirm_timeout_ms = confirm_timeout_ms
 
-    async def open_target(self, name: str, retries: int = 1) -> None:
+    async def open_target(
+        self, name: str, retries: int = 1, *, conversation_id: str | None = None
+    ) -> None:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                await self._open_target_once(name)
+                if conversation_id is None:
+                    await self._open_target_once(name)
+                else:
+                    await self._open_conversation(conversation_id)
                 return
             except Exception as exc:
                 last_error = exc
@@ -49,9 +72,49 @@ class DouyinChat:
 
         result = await self._search_result(name)
         if result is None:
-            raise PageOperationError("搜索不到目标好友")
+            raise TargetUnavailableError("搜索不到目标好友")
         await result.click(force=True)
         await self._confirm_opened(name)
+
+    async def _open_conversation(self, conversation_id: str) -> None:
+        conversation_list = self.page.locator(_CONVERSATION_LIST).first
+        await conversation_list.wait_for(state="visible", timeout=self.timeout_ms)
+        rows = conversation_list.locator(_CONVERSATION_ROW)
+        lookup = f"""(rows) => rows.map(row => ({_REACT_CONVERSATION_ID})(row, "conversation"))"""
+        deadline = asyncio.get_running_loop().time() + self.timeout_ms / 1_000
+        await conversation_list.evaluate("(list) => { list.scrollTop = 0; }")
+        await self.page.wait_for_timeout(350)
+        last_bottom = None
+        while True:
+            ids = await rows.evaluate_all(lookup)
+            if ids.count(conversation_id) == 1:
+                await rows.nth(ids.index(conversation_id)).click(timeout=self.timeout_ms)
+                await self.confirm_conversation_id(conversation_id, self.confirm_timeout_ms)
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                break
+            before, after, height = await conversation_list.evaluate("""list => {
+                const before = list.scrollTop;
+                list.scrollTop += Math.max(1, list.clientHeight * 0.8);
+                return [before, list.scrollTop, list.scrollHeight];
+            }""")
+            bottom = (after, height) if before == after else None
+            if bottom is not None and bottom == last_bottom:
+                break
+            last_bottom = bottom
+            await self.page.wait_for_timeout(350)
+        raise TargetUnavailableError("Conversation with the configured ID was not found")
+
+    async def confirm_conversation_id(self, conversation_id: str, timeout_ms: int = 0) -> None:
+        headers = self.page.locator(_CONVERSATION_HEADER)
+        read_ids = f"""(headers) => headers.map(header => ({_REACT_CONVERSATION_ID})(header, "curConversation"))"""
+        deadline = asyncio.get_running_loop().time() + timeout_ms / 1_000
+        while True:
+            if await headers.evaluate_all(read_ids) == [conversation_id] and await self._composer_visible():
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                raise PageOperationError("Could not confirm the active conversation ID")
+            await self.page.wait_for_timeout(250)
 
     async def _search_result(self, name: str) -> Locator | None:
         # Search mode renders a separate SearchPanel. Its "发消息" action is the

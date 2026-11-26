@@ -19,6 +19,11 @@ def load_settings(env_file: str | Path | None = None) -> Settings:
     task_path = Path(os.getenv("TASK_CONFIG", "config.json")).expanduser()
     artifacts_dir = Path(os.getenv("ARTIFACTS_DIR", "artifacts")).expanduser()
     default_state = Path("storage-state.json")
+    profile = _optional_env("BROWSER_USER_DATA_DIR")
+    cookie = _optional_env("DOUYIN_COOKIE")
+    storage_state = _optional_env("DOUYIN_STORAGE_STATE") or (str(default_state) if default_state.is_file() else None)
+    if profile and (cookie or storage_state):
+        raise ConfigError("BROWSER_USER_DATA_DIR cannot be combined with DOUYIN_COOKIE or DOUYIN_STORAGE_STATE")
     dingtalk_webhook = _optional_env("DINGTALK_WEBHOOK")
     dingtalk_secret = _optional_env("DINGTALK_SECRET")
     if bool(dingtalk_webhook) != bool(dingtalk_secret):
@@ -30,8 +35,8 @@ def load_settings(env_file: str | Path | None = None) -> Settings:
 
     return Settings(
         task_config_path=task_path,
-        storage_state=_optional_env("DOUYIN_STORAGE_STATE") or (str(default_state) if default_state.is_file() else None),
-        cookie=_optional_env("DOUYIN_COOKIE"),
+        storage_state=storage_state,
+        cookie=cookie,
         headless=_parse_bool(os.getenv("HEADLESS", "false"), "HEADLESS"),
         browser_path=_optional_env("BROWSER_PATH"),
         artifacts_dir=artifacts_dir,
@@ -41,6 +46,7 @@ def load_settings(env_file: str | Path | None = None) -> Settings:
         webhook_url=webhook_url,
         webhook_headers=webhook_headers,
         webhook_template=webhook_template,
+        browser_user_data_dir=Path(profile).expanduser() if profile else None,
     )
 
 
@@ -57,11 +63,18 @@ def load_task(settings: Settings) -> TaskConfig:
             raise ConfigError("friends 必须是非空数组")
         if not isinstance(messages, list) or not messages:
             raise ConfigError("messages 必须是非空数组")
-        targets_raw = [{"name": name, "messages": messages} for name in friends]
+        targets_raw = [
+            {**friend, "messages": messages} if isinstance(friend, dict)
+            else {"name": friend, "messages": messages}
+            for friend in friends
+        ]
     if not isinstance(targets_raw, list) or not targets_raw:
         raise ConfigError("targets 必须是非空数组")
 
     targets = tuple(_parse_target(item, index, settings.task_config_path.parent) for index, item in enumerate(targets_raw))
+    conversation_ids = [target.conversation_id for target in targets if target.conversation_id is not None]
+    if len(set(conversation_ids)) != len(conversation_ids):
+        raise ConfigError("Duplicate conversation_id in task configuration")
     interval = raw.get("send_interval_seconds", {})
     if not isinstance(interval, dict):
         raise ConfigError("send_interval_seconds 必须是对象")
@@ -127,7 +140,14 @@ def _parse_target(raw: Any, index: int, config_dir: Path) -> Target:
     messages_raw = raw.get("messages")
     if not isinstance(messages_raw, list) or not messages_raw:
         raise ConfigError(f"{label}.messages 必须是非空数组")
-    return Target(name=name, messages=tuple(_parse_message(item, f"{label}.messages[{i}]", config_dir) for i, item in enumerate(messages_raw)))
+    conversation_id = None
+    if "conversation_id" in raw:
+        conversation_id = _non_empty_string(raw["conversation_id"], f"{label}.conversation_id")
+    return Target(
+        name=name,
+        messages=tuple(_parse_message(item, f"{label}.messages[{i}]", config_dir) for i, item in enumerate(messages_raw)),
+        conversation_id=conversation_id,
+    )
 
 
 def _parse_message(raw: Any, label: str, config_dir: Path) -> Message:

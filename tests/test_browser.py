@@ -13,7 +13,40 @@ from app.browser import (
     open_private_messages,
 )
 from app.config import ConfigError
+from app.models import Settings
 from app.selectors import DOUYIN_CHAT_URL, LOGIN_REQUIRED_MARKERS, RISK_MARKERS
+
+
+@pytest.mark.asyncio
+async def test_persistent_profile_reuses_browser_state_without_cookie_import(tmp_path) -> None:
+    from app.browser import open_douyin
+
+    context = MagicMock()
+    context.new_page = AsyncMock()
+    context.close = AsyncMock()
+    playwright = MagicMock()
+    playwright.chromium.launch_persistent_context = AsyncMock(return_value=context)
+    playwright.stop = AsyncMock()
+    manager = MagicMock()
+    manager.start = AsyncMock(return_value=playwright)
+    profile = tmp_path / "profile"
+    settings = Settings(
+        task_config_path=tmp_path / "config.json", storage_state=None, cookie=None,
+        headless=True, browser_path=None, artifacts_dir=tmp_path / "artifacts",
+        trace=False, browser_user_data_dir=profile,
+    )
+
+    with patch("app.browser.async_playwright", return_value=manager):
+        async with open_douyin(settings) as session:
+            assert session.context is context
+
+    playwright.chromium.launch_persistent_context.assert_awaited_once_with(
+        str(profile), headless=True, viewport={"width": 1440, "height": 1000}, locale="zh-CN",
+    )
+    playwright.chromium.launch.assert_not_called()
+    context.add_cookies.assert_not_called()
+    context.close.assert_awaited_once()
+    playwright.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio

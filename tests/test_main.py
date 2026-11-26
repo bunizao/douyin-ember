@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.browser import AuthenticationError
+from app.douyin import TargetUnavailableError
+from app.history import History
 from app.models import Message, Settings, Target, TaskConfig
 import app.main as main_module
 
@@ -69,7 +72,7 @@ async def test_authentication_failure_stops_remaining_targets_and_notifies(monke
         await main_module.run()
 
     # 新的实现使用 _open_target_with_retry() 包装器，内部调用时 retries=0
-    chat.open_target.assert_awaited_once_with("好友A", retries=0)
+    chat.open_target.assert_awaited_once_with("好友A", retries=0, conversation_id=None)
     results = notify.await_args.args[3]
     assert [(result.target, result.status) for result in results] == [("好友A", "failed")]
 
@@ -149,3 +152,48 @@ async def test_waits_between_consecutive_messages_for_same_friend(monkeypatch, t
     assert await main_module.run() == 0
     assert send_message.await_count == 2
     assert sleeps == [0.5]
+
+
+@pytest.mark.asyncio
+async def test_missing_conversation_does_not_block_later_recipients(monkeypatch, tmp_path) -> None:
+    settings = replace(_settings(tmp_path), dingtalk_webhook=None)
+    task = replace(
+        _task(),
+        targets=tuple(
+            Target(name, (Message(type="text", content="Hello"),), conversation_id)
+            for name, conversation_id in (
+                ("Migrated friend", "id-1"), ("Missing friend", "id-2"), ("Later friend", "id-3")
+            )
+        ),
+        continue_on_error=False,
+        prevent_duplicates=True,
+    )
+
+    @asynccontextmanager
+    async def fake_open_douyin(_settings):
+        yield SimpleNamespace(page=MagicMock(), context=MagicMock())
+
+    history_path = settings.artifacts_dir / "history.json"
+    history = History(history_path)
+    date = history.run_date(task.timezone)
+    message_id = main_module._message_id(0, task.targets[0].messages[0])
+    history.reserve(history.key(task.task_id, date, "Migrated friend", message_id))
+    chat = MagicMock()
+    chat.open_target = AsyncMock(side_effect=[None, TargetUnavailableError("not found"), None])
+    chat.confirm_conversation_id = AsyncMock()
+    send_message = AsyncMock()
+    monkeypatch.setattr(main_module, "load_settings", lambda _env: settings)
+    monkeypatch.setattr(main_module, "load_task", lambda _settings: task)
+    monkeypatch.setattr(main_module, "open_douyin", fake_open_douyin)
+    monkeypatch.setattr(main_module, "open_private_messages", AsyncMock())
+    monkeypatch.setattr(main_module, "verify_login", AsyncMock())
+    monkeypatch.setattr(main_module, "DouyinChat", MagicMock(return_value=chat))
+    monkeypatch.setattr(main_module, "_screenshot", AsyncMock(return_value=None))
+    monkeypatch.setattr(main_module, "send_message", send_message)
+
+    assert await main_module.run() == 1
+    assert [call.kwargs["conversation_id"] for call in chat.open_target.await_args_list] == ["id-1", "id-2", "id-3"]
+    chat.confirm_conversation_id.assert_awaited_once_with("id-3")
+    send_message.assert_awaited_once()
+    key = history.key(task.task_id, date, "conversation:id-3", message_id)
+    assert History(history_path).entries[key]["status"] == "success"

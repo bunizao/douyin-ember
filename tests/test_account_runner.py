@@ -212,4 +212,7 @@ def test_run_all_accounts_uses_per_account_artifacts_dir(monkeypatch, tmp_path: 
     assert runner_module.run_all_accounts() == 0
     assert lock_dirs == [Path("artifacts") / "a"]
     assert (tmp_path / "artifacts" / "a").is_dir()
-    assert not (tmp_path / "artifacts" / "a" / "run.lock").exists()
+    from app.history import run_lock
+
+    with run_lock(tmp_path / "artifacts" / "a" / "run.lock"):
+        pass

@@ -31,4 +31,5 @@ def test_run_lock_rejects_second_process(tmp_path: Path) -> None:
             with run_lock(path):
                 pass
 
-    assert not path.exists()
+    with run_lock(path):
+        assert path.exists()

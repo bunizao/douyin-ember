@@ -1,0 +1,18 @@
+services:
+  douyin-auto-fire:
+    init: true
+    hostname: douyin-auto-fire
+    mem_limit: 1536m
+    memswap_limit: 2g
+    entrypoint:
+      - xvfb-run
+      - --auth-file=/tmp/douyin.xauth
+      - --server-num=99
+      - --server-args=-screen 0 1600x1200x24
+      - /app/docker/entrypoint.sh
+    environment:
+      HEADLESS: "false"
+      DOUYIN_COOKIE: ""
+      BROWSER_USER_DATA_DIR: /data/profile
+    volumes:
+      - ./profile:/data/profile

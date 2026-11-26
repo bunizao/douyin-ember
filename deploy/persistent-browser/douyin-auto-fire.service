@@ -1,0 +1,14 @@
+[Unit]
+Description=Send daily Douyin streak messages
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/douyin-auto-fire
+ExecStart=/usr/bin/python3 /opt/douyin-auto-fire/scheduled-run.py
+ExecStopPost=/bin/sh -c '/usr/bin/docker rm -f douyin-scheduled-run >/dev/null 2>&1 || true'
+TimeoutStartSec=15min
+TimeoutStopSec=40s
+UMask=0077

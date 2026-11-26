@@ -11,5 +11,8 @@ config/accounts.json
 config/tasks/
 storage-state.json
 storage_state/
+profile/
+runtime-image.tar.gz*
+runtime-image.json*
 artifacts/
 *.log

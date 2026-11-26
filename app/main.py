@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import random
 import re
 import hashlib
@@ -14,11 +15,11 @@ from pathlib import Path
 
 from app.browser import AuthenticationError, RiskControlError, SearchBoxNotReadyError, open_douyin, open_private_messages, save_trace, verify_login
 from app.config import ConfigError, load_settings, load_task
-from app.douyin import DouyinChat, PageOperationError
+from app.douyin import DouyinChat, PageOperationError, TargetUnavailableError
 from app.errors import classify_error, get_retry_strategy, should_stop_all_tasks
 from app.history import AlreadyRunningError, History, run_lock
 from app.metrics import Metrics, HistoricalMetrics, format_metrics_summary
-from app.models import Settings, TargetResult
+from app.models import Settings, Target, TargetResult
 from app.notifier import send_dingtalk_notification, send_webhook_notification
 from app.privacy import RedactingFormatter, build_target_aliases, redact_text, target_alias
 from app.progress import create_single_run_progress
@@ -35,7 +36,7 @@ async def run(dry_run: bool = False, env_file: str | None = None) -> int:
     aliases = build_target_aliases(task.targets)
     _configure_logging(settings.artifacts_dir, aliases)
 
-    if not settings.storage_state and not settings.cookie:
+    if not settings.storage_state and not settings.cookie and not settings.browser_user_data_dir:
         raise ConfigError("必须配置 DOUYIN_STORAGE_STATE 或 DOUYIN_COOKIE")
 
     # 初始化监控指标
@@ -97,14 +98,21 @@ async def run(dry_run: bool = False, env_file: str | None = None) -> int:
                         LOGGER.info("处理好友: %s", alias)
 
                         # 使用智能重试策略打开目标
-                        await _open_target_with_retry(chat, target.name, task.target_open_retries)
+                        await _open_target_with_retry(chat, target, task.target_open_retries)
 
                         if not dry_run:
                             for message_index, message in enumerate(target.messages):
                                 message_id = _message_id(message_index, message)
-                                key = history.key(task.task_id, run_date, target.name, message_id)
+                                legacy_key = history.key(task.task_id, run_date, target.name, message_id)
+                                key = legacy_key
+                                if target.conversation_id is not None:
+                                    key = history.key(
+                                        task.task_id, run_date, f"conversation:{target.conversation_id}", message_id
+                                    )
 
-                                if task.prevent_duplicates and history.contains(key):
+                                if task.prevent_duplicates and (
+                                    history.contains(key) or (legacy_key != key and history.contains(legacy_key))
+                                ):
                                     LOGGER.info(
                                         "跳过当天已处理或结果不确定的消息: %s #%d",
                                         alias,
@@ -113,12 +121,12 @@ async def run(dry_run: bool = False, env_file: str | None = None) -> int:
                                     metrics.record_skipped_message()
                                     continue
 
-                                if task.prevent_duplicates:
-                                    history.reserve(key)
-
-                                # 发送单条消息并计时
                                 msg_start = time.time()
                                 await verify_login(page, timeout_ms=3_000)
+                                if target.conversation_id is not None:
+                                    await chat.confirm_conversation_id(target.conversation_id)
+                                if task.prevent_duplicates:
+                                    history.reserve(key)
                                 await send_message(page, chat, message, task.stickers)
                                 msg_duration = time.time() - msg_start
                                 metrics.record_message_time(msg_duration)
@@ -179,7 +187,7 @@ async def run(dry_run: bool = False, env_file: str | None = None) -> int:
                             fatal_error = exc
                             break
 
-                        if not task.continue_on_error:
+                        if not task.continue_on_error and not isinstance(exc, TargetUnavailableError):
                             break
 
                     multi_stage.update_progress(1)
@@ -270,7 +278,9 @@ def _configure_logging(
             pattern = pattern.replace(" %(message)s", f" [{label}] %(message)s")
         formatter = RedactingFormatter(pattern, aliases=aliases)
         artifacts_dir.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(artifacts_dir / "run.log", encoding="utf-8")
+        file_handler = RotatingFileHandler(
+            artifacts_dir / "run.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
         file_handler.setFormatter(formatter)
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
@@ -381,22 +391,13 @@ def _message_id(index, message) -> str:
     return f"{index}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:12]}"
 
 
-async def _open_target_with_retry(chat: DouyinChat, target_name: str, max_retries: int) -> None:
-    """使用智能重试策略打开目标聊天。
-
-    Args:
-        chat: DouyinChat 实例
-        target_name: 目标好友名称
-        max_retries: 最大重试次数（来自配置）
-
-    Raises:
-        Exception: 最后一次重试失败后抛出
-    """
+async def _open_target_with_retry(chat: DouyinChat, target: Target, max_retries: int) -> None:
+    """Open a configured recipient with the existing error-aware retry policy."""
     last_exception = None
 
     for attempt in range(max_retries + 1):
         try:
-            await chat.open_target(target_name, retries=0)  # 单次尝试，重试逻辑在这里控制
+            await chat.open_target(target.name, retries=0, conversation_id=target.conversation_id)
             return
         except Exception as exc:
             last_exception = exc

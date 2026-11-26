@@ -12,3 +12,6 @@ config/tasks/
 config.json
 storage-state.json
 storage_state/
+profile/
+runtime-image.tar.gz*
+runtime-image.json*

@@ -41,13 +41,27 @@ class History:
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(self.entries, ensure_ascii=False, indent=2), encoding="utf-8")
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(self.entries, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
         temporary.replace(self.path)
+        if os.name != "nt":
+            descriptor = os.open(self.path.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
 
     def _load(self) -> dict:
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
-            return value if isinstance(value, dict) else {}
+            if not isinstance(value, dict) or any(
+                not isinstance(entry, dict) or entry.get("status") not in {"unknown", "success"}
+                for entry in value.values()
+            ):
+                raise ValueError(f"发送历史损坏，为避免重复发送，任务已停止: {self.path}")
+            return value
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError as exc:
@@ -57,16 +71,29 @@ class History:
 @contextmanager
 def run_lock(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        raise AlreadyRunningError(f"已有任务正在运行；如确认没有进程，请删除 {path}") from exc
-    try:
+        if os.name == "nt":
+            import msvcrt
+
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b" ")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise AlreadyRunningError(f"A task already holds {path}") from exc
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise AlreadyRunningError(f"A task already holds {path}") from exc
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
         os.write(descriptor, str(os.getpid()).encode("ascii"))
-        os.close(descriptor)
         yield
     finally:
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+        # Keep the inode stable so another process cannot acquire a replacement file.
+        os.close(descriptor)

@@ -1,0 +1,30 @@
+name: douyin-auto-fire
+
+services:
+  douyin-auto-fire:
+    image: ${DOUYIN_IMAGE:?Set DOUYIN_IMAGE to the verified image digest}
+    container_name: douyin-auto-fire
+    profiles: [scheduled]
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 1g
+    shm_size: 256m
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 8 * * *}
+      RUN_ON_START: "false"
+      HEADLESS: "true"
+      DOUYIN_COOKIE: /data/cookie.json
+      TASK_CONFIG: /app/config.json
+      ARTIFACTS_DIR: /app/artifacts
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./config.json:/app/config.json:ro
+      - ./cookie.json:/data/cookie.json:ro
+      - ./config:/app/config:ro
+      - ./artifacts:/app/artifacts
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

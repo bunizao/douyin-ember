@@ -1,8 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from playwright.async_api import async_playwright
 
-from app.douyin import DouyinChat, PageOperationError
+from app.douyin import DouyinChat, PageOperationError, TargetUnavailableError
 from app.selectors import CHAT_PANEL_MARKERS, MESSAGE_INPUTS
 
 
@@ -447,3 +448,45 @@ def test_group_count_suffix_matches_escapes_expected_regex_meta() -> None:
 # Suppress the unused `re` import warning the linter may raise for the
 # pure-assertion block above; `re` is intentionally kept as a sanity anchor.
 _ = re
+
+
+@pytest.mark.asyncio
+async def test_conversation_id_survives_rename_and_rejects_wrong_active_chat() -> None:
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page()
+            await page.set_content("""
+                <div class="conversationConversationListwrapper">
+                  <button data-e2e="conversation-item" data-id="wrong-id">Old nickname</button>
+                  <button data-e2e="conversation-item" data-id="target-id">New nickname</button>
+                </div>
+                <header class="RightPanelHeaderconvHeader">Chat</header>
+                <textarea placeholder="消息"></textarea>
+                <script>
+                const header = document.querySelector("header");
+                for (const row of document.querySelectorAll("button")) {
+                    const conversation = {id: row.dataset.id};
+                    row["__reactFiber$test"] = {memoizedProps: {conversation}};
+                    row.addEventListener("click", () => {
+                        header["__reactFiber$test"] = {
+                            memoizedProps: {curConversation: conversation}
+                        };
+                        header.textContent = row.textContent;
+                    });
+                }
+                </script>
+            """)
+            chat = DouyinChat(page, timeout_ms=1_500)
+
+            await chat.open_target("Old nickname", retries=0, conversation_id="target-id")
+            assert await page.locator("header").inner_text() == "New nickname"
+
+            await page.get_by_role("button", name="Old nickname").click()
+            with pytest.raises(PageOperationError, match="active conversation ID"):
+                await chat.confirm_conversation_id("target-id")
+
+            with pytest.raises(TargetUnavailableError, match="configured ID"):
+                await chat.open_target("Old nickname", retries=0, conversation_id="missing-id")
+        finally:
+            await browser.close()
