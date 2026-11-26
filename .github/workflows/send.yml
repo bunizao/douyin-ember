@@ -33,11 +33,12 @@ jobs:
       HEADLESS: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v10
         with:
+          version: "0.11.15"
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: python -m playwright install --with-deps chromium
+      - run: uv sync --locked --no-dev
+      - run: uv run --locked --no-dev playwright install --with-deps chromium
       - name: Write protected configuration
         shell: bash
         run: printf '%s' "$DOUYIN_CONFIG" > config.json
@@ -58,7 +59,7 @@ jobs:
           LEGACY_CONFIG: ${{ secrets.DOUYIN_CONFIG }}
         run: |
           mkdir -p config/tasks
-          python - <<'PY'
+          uv run --locked --no-dev python - <<'PY'
           import json
           import os
           from pathlib import Path
@@ -113,9 +114,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
-            python run.py --dry-run
+            uv run --locked --no-dev run.py --dry-run
           else
-            python run.py
+            uv run --locked --no-dev run.py
           fi
       - name: Upload diagnostics
         if: failure()

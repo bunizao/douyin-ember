@@ -15,7 +15,7 @@ fi
 cat > /etc/cron.d/douyin-auto-fire <<EOF
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-${CRON_SCHEDULE} root cd /app && /usr/local/bin/python run.py >> /proc/1/fd/1 2>> /proc/1/fd/2
+${CRON_SCHEDULE} root cd /app && /app/.venv/bin/python run.py >> /proc/1/fd/1 2>> /proc/1/fd/2
 EOF
 
 chmod 0644 /etc/cron.d/douyin-auto-fire

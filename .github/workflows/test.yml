@@ -2,16 +2,23 @@ name: Test
 
 on:
   push:
+    branches-ignore:
+      - main
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v10
         with:
+          version: "0.11.15"
           python-version: "3.11"
-      - run: pip install -r requirements-dev.txt
-      - run: python -m playwright install --with-deps chromium
-      - run: python -m pytest -q
+      - run: uv sync --locked
+      - run: uv run --locked playwright install --with-deps chromium
+      - run: uv run --locked python -m pytest -q

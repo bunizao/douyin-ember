@@ -8,8 +8,10 @@ __pycache__/
 artifacts/*
 !artifacts/.gitkeep
 config/tasks.json
+config/accounts.json
 config/tasks/
 config.json
+cookie.json
 storage-state.json
 storage_state/
 profile/
