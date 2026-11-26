@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Webhook 配置测试脚本。
-
-用于测试 Webhook URL、Headers 和 Template 配置是否正确。
-"""
+"""Send a test notification with the configured WEBHOOK_* settings."""
 import argparse
 import asyncio
 import sys
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -18,7 +14,6 @@ from app.notifier import send_webhook_notification
 
 
 async def test_webhook():
-    """测试 Webhook 通知发送。"""
     try:
         settings = load_settings(read_env())
     except Exception as e:
@@ -39,7 +34,6 @@ async def test_webhook():
         print(f"📝 自定义模板: 已配置")
     print()
 
-    # 创建测试数据
     test_results = [
         TargetResult(target="好友01", status="success", sent=2),
         TargetResult(target="好友02", status="success", sent=1),
@@ -70,7 +64,6 @@ async def test_webhook():
 
 
 def main():
-    """主入口。"""
     parser = argparse.ArgumentParser(
         description="测试 Webhook 配置",
         formatter_class=argparse.RawDescriptionHelpFormatter,

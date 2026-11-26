@@ -7,7 +7,7 @@ on:
         description: Only verify login and friends without sending
         type: boolean
         default: false
-  # 使用 GitHub Actions 的日程时把下面三行注释删掉；用外部 cron 不用管
+  # Uncomment the next three lines to schedule runs on GitHub Actions
   # schedule:
   #   - cron: "0 0 * * *"
   #     timezone: "Asia/Shanghai"
@@ -65,16 +65,16 @@ jobs:
           from pathlib import Path
 
           if not any(os.environ.get(f"COOKIE_{i}") for i in range(1, 6)):
-              # 没有配置任何多账号 Secret（DOUYIN_COOKIE_ACCOUNTn）：
-              # 保持旧单账号模式，不生成 accounts.json。
+              # No DOUYIN_COOKIE_ACCOUNTn secret: stay in single-account mode
+              # and write no accounts.json.
               print("未配置多账号 Secret，继续使用旧单账号模式")
               raise SystemExit(0)
 
           accounts = []
           for index in range(1, 6):
               if index == 1 and not os.environ.get("COOKIE_1") and not os.environ.get("CONFIG_1"):
-                  # 没有配置 DOUYIN_COOKIE_ACCOUNT1 时，旧版 DOUYIN_COOKIE /
-                  # DOUYIN_CONFIG 自动作为账号1，方便老用户直接追加新账号。
+                  # Without DOUYIN_COOKIE_ACCOUNT1, the single-account DOUYIN_COOKIE
+                  # and DOUYIN_CONFIG become account 1.
                   cookie = os.environ.get("LEGACY_COOKIE")
                   config = os.environ.get("LEGACY_CONFIG")
               else:
@@ -87,7 +87,7 @@ jobs:
                       f"账号 account{index} 的 DOUYIN_COOKIE_ACCOUNT{index} 与 "
                       f"DOUYIN_CONFIG_ACCOUNT{index} 必须同时配置"
                   )
-              # 提前校验，出错时直接指出是哪个 Secret，避免任务执行时才报错
+              # Validate now so an error names the secret instead of failing mid-run
               try:
                   json.loads(cookie)
               except json.JSONDecodeError as exc:
@@ -97,8 +97,8 @@ jobs:
               except json.JSONDecodeError as exc:
                   raise SystemExit(f"DOUYIN_CONFIG_ACCOUNT{index} 不是有效 JSON: {exc}") from exc
               env_file = f".env.account{index}"
-              # Cookie 用 JSON 字符串转义后写入，dotenv 可精确还原，
-              # 兼容多行 Cookie JSON 与 # 等特殊字符
+              # Write the cookie JSON-escaped so dotenv restores multi-line
+              # JSON and characters such as # exactly
               Path(env_file).write_text(
                   f"DOUYIN_COOKIE={json.dumps(cookie)}\nTASK_CONFIG=config/tasks/account{index}.json\n",
                   encoding="utf-8",

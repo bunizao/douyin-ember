@@ -46,17 +46,6 @@ async def send_webhook_notification(
     template: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> None:
-    """发送通用 Webhook 通知。
-
-    Args:
-        webhook_url: Webhook URL
-        task_id: 任务 ID
-        dry_run: 是否为 Dry Run 模式
-        results: 执行结果列表
-        screenshots: 截图文件列表
-        template: 自定义模板（JSON 字符串），支持变量替换
-        headers: 自定义请求头
-    """
     payload = build_webhook_payload(task_id, dry_run, results, screenshots, template)
     custom_headers = dict(headers or {})
     custom_headers.setdefault("Content-Type", "application/json; charset=utf-8")
@@ -188,25 +177,10 @@ def build_webhook_payload(
     screenshots: list[Path],
     template: str | None = None,
 ) -> dict:
-    """构建通用 Webhook 负载。
+    """Build the webhook body, from ``template`` when one is set.
 
-    Args:
-        task_id: 任务 ID
-        dry_run: 是否为 Dry Run 模式
-        results: 执行结果列表
-        screenshots: 截图文件列表
-        template: 自定义 JSON 模板，支持以下变量：
-            - {task_id}: 任务 ID
-            - {mode}: 运行模式（检查模式/正式发送）
-            - {status}: 执行状态（全部成功/存在失败）
-            - {success_count}: 成功数量
-            - {failed_count}: 失败数量
-            - {total_count}: 总数量
-            - {timestamp}: 时间戳（ISO 8601）
-            - {results_json}: 完整结果 JSON（转义后）
-
-    Returns:
-        Webhook 负载字典
+    Template variables: {task_id}, {mode}, {status}, {success_count},
+    {failed_count}, {total_count}, {timestamp} (ISO 8601) and {results_json}.
     """
     successes = [result for result in results if result.status == "success"]
     failures = [result for result in results if result.status == "failed"]
@@ -214,7 +188,6 @@ def build_webhook_payload(
     mode = "检查模式（未发送消息）" if dry_run else "正式发送"
     finished = datetime.now(timezone.utc).astimezone(NOTIFY_TIMEZONE).isoformat()
 
-    # 构建结果摘要
     results_data = [
         {
             "target": result.target,
@@ -225,7 +198,6 @@ def build_webhook_payload(
         for result in results
     ]
 
-    # 如果没有自定义模板，使用默认格式
     if not template:
         return {
             "task_id": task_id,
@@ -240,11 +212,9 @@ def build_webhook_payload(
             "screenshots": [str(path.name) for path in screenshots],
         }
 
-    # 使用自定义模板
     try:
         template_dict = json.loads(template)
     except json.JSONDecodeError as exc:
-        # 模板解析失败，回退到默认格式
         return {
             "error": "模板解析失败",
             "template_error": str(exc),
@@ -252,7 +222,6 @@ def build_webhook_payload(
             "status": status,
         }
 
-    # 替换模板中的变量（支持字符串和数字类型）
     variables = {
         "{task_id}": task_id,
         "{mode}": mode,
@@ -261,42 +230,37 @@ def build_webhook_payload(
         "{failed_count}": len(failures),
         "{total_count}": len(results),
         "{timestamp}": finished,
-        "{results_json}": results_data,  # 直接传递对象，不转 JSON 字符串
+        "{results_json}": results_data,
     }
 
     return _replace_template_vars(template_dict, variables)
 
 
 def _replace_template_vars(obj, variables: dict[str, str | int | list]):
-    """递归替换模板中的变量。
+    """Fill template variables recursively.
 
-    支持字符串替换和直接值替换：
-    - 字符串类型：在字符串中查找并替换变量占位符
-    - 特殊值（如 results_json）：直接返回对象本身
+    A string that is exactly one placeholder becomes the raw value, so
+    {results_json} stays a list and counts stay numbers.
     """
     if isinstance(obj, dict):
         return {key: _replace_template_vars(value, variables) for key, value in obj.items()}
     if isinstance(obj, list):
         return [_replace_template_vars(item, variables) for item in obj]
     if isinstance(obj, str):
-        # 检查是否是纯变量占位符（用于直接值替换）
         obj_stripped = obj.strip()
         if obj_stripped in variables:
             return variables[obj_stripped]
-        # 否则做字符串替换
         result = obj
         for var, value in variables.items():
             if isinstance(value, str):
                 result = result.replace(var, value)
             elif var in result:
-                # 数字类型的变量需要转字符串
                 result = result.replace(var, str(value))
         return result
     return obj
 
 
 def _post_json_webhook(url: str, payload: dict, headers: dict[str, str]) -> None:
-    """发送 JSON 到通用 Webhook。"""
     request = Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -305,5 +269,4 @@ def _post_json_webhook(url: str, payload: dict, headers: dict[str, str]) -> None
     )
     with urlopen(request, timeout=15) as response:
         body = response.read().decode("utf-8")
-    # 通用 Webhook 不对响应做严格校验，只要 HTTP 状态码是 2xx 就认为成功
-    # 如果需要校验响应内容，可以在这里添加
+    # Any 2xx counts as delivered; the body is not checked.

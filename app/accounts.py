@@ -11,7 +11,7 @@ DEFAULT_ACCOUNTS_FILE = Path("config") / "accounts.json"
 
 @dataclass(frozen=True)
 class Account:
-    """一个多账号条目。env_file 相对项目根目录解析。"""
+    """One multi-account entry. env_file resolves against the project root."""
 
     id: str
     enabled: bool
@@ -19,11 +19,10 @@ class Account:
 
 
 def load_accounts(path: Path = DEFAULT_ACCOUNTS_FILE) -> list[Account] | None:
-    """加载多账号配置。
+    """Load the enabled accounts.
 
-    返回 None 表示没有 accounts.json（旧单账号模式）；
-    返回 [] 表示存在配置但没有启用任何账号；
-    其余情况返回启用的账号列表。
+    Returns None without accounts.json (single-account mode) and [] when the
+    file exists but enables no account.
     """
     if not path.is_file():
         return None

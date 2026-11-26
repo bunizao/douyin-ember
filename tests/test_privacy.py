@@ -22,7 +22,7 @@ def test_build_target_aliases_preserves_order_and_does_not_mutate() -> None:
     aliases = build_target_aliases(targets)
 
     assert aliases == {"张三": "好友01", "李四": "好友02"}
-    # 原始 target.name 不被修改
+    # The original target.name is left untouched
     assert targets[0].name == "张三"
     assert targets[1].name == "李四"
 

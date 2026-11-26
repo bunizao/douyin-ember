@@ -279,19 +279,13 @@ def _number(value: Any, label: str) -> float:
 
 
 def _parse_webhook_headers(value: str | None) -> dict[str, str] | None:
-    """解析 WEBHOOK_HEADERS 环境变量为字典。
-
-    支持格式：
-    - JSON 对象: {"Content-Type": "application/json", "Authorization": "Bearer token"}
-    - 键值对: Content-Type=application/json,Authorization=Bearer token
-    """
+    """Parse WEBHOOK_HEADERS as a JSON object or as key=value pairs separated by commas."""
     if not value:
         return None
     value = value.strip()
     if not value:
         return None
 
-    # 尝试 JSON 格式（数组或对象都尝试解析）
     if value.startswith("{") or value.startswith("["):
         try:
             parsed = json.loads(value)
@@ -301,7 +295,6 @@ def _parse_webhook_headers(value: str | None) -> dict[str, str] | None:
         except json.JSONDecodeError as exc:
             raise ConfigError(f"WEBHOOK_HEADERS JSON 格式错误: {exc}") from exc
 
-    # 尝试键值对格式 key1=value1,key2=value2
     headers = {}
     for pair in value.split(","):
         pair = pair.strip()

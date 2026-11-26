@@ -34,7 +34,7 @@ class RiskControlError(RuntimeError):
 
 
 class SearchBoxNotReadyError(RuntimeError):
-    """私信页已打开但搜索框未就绪；说明渲染慢，而非登录失效。"""
+    """The chat page opened but its search box never rendered: slow page, not a lost login."""
 
 
 # Text inside conversations is written by users. A friend's message, preview or

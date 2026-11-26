@@ -11,7 +11,7 @@ def main() -> int:
         print(f"错误: {exc}")
         return 2
     if accounts is None:
-        # 没有 config/accounts.json：旧单账号模式，行为不变。
+        # No config/accounts.json: single-account mode.
         return run_single()
     try:
         return run_all_accounts()
