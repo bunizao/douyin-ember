@@ -32,7 +32,14 @@ and enable douyin-ember.timer. The timer starts a one-shot container daily
 at 08:00 Asia/Shanghai. The scheduler bounds its run time, keeps dated receipts
 in artifacts, and restores a pruned image from the verified local backup.
 
-To update, stop the timer and wait for the service to exit. Pull the new image,
-set DOUYIN_IMAGE to the tested tag or digest, repeat the dry run and backup,
-then restart the timer. Keep the old image, backup, profile, and send history
-available for rollback.
+Updates are automatic: also install `douyin-ember-update.service` and
+`douyin-ember-update.timer` and enable the timer. Every day at 06:00 it pulls
+`ghcr.io/bunizao/douyin-ember:latest`. When the commit changed, it pins
+DOUYIN_IMAGE to that commit's `sha-` tag and runs a dry run. If at least one
+friend was reached, it keeps the new image, refreshes the backup and deletes
+the older images; otherwise it restores the previous DOUYIN_IMAGE. Run
+`sudo python3 update-image.py` to update right away, and
+`journalctl -u douyin-ember-update` to see what it decided.
+
+To roll back by hand, set DOUYIN_IMAGE to an older `sha-` tag, pull it, run a
+dry run and `backup-image.py`. Old tags stay available on GHCR.

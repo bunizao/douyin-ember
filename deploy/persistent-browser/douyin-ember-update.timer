@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a new Douyin Ember image daily at 06:00 China time
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 Asia/Shanghai
+# A missed check must not fire at boot next to the 08:00 send.
+Persistent=false
+Unit=douyin-ember-update.service
+
+[Install]
+WantedBy=timers.target

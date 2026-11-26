@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy the newest Douyin Ember image after a dry run
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/douyin-ember
+ExecStart=/usr/bin/python3 /opt/douyin-ember/update-image.py
+TimeoutStartSec=45min
+UMask=0077
