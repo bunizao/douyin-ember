@@ -16,7 +16,6 @@ class TargetUnavailableError(PageOperationError):
     pass
 
 
-RETRY_DELAY_MS = 3_000
 _CONVERSATION_LIST = ".conversationConversationListwrapper"
 _CONVERSATION_ROW = '[data-e2e="conversation-item"]'
 _CONVERSATION_HEADER = ".RightPanelHeaderconvHeader:visible"
@@ -44,24 +43,11 @@ class DouyinChat:
         self.timeout_ms = timeout_ms
         self.confirm_timeout_ms = confirm_timeout_ms
 
-    async def open_target(
-        self, name: str, retries: int = 1, *, conversation_id: str | None = None
-    ) -> None:
-        last_error: Exception | None = None
-        for attempt in range(retries + 1):
-            try:
-                if conversation_id is None:
-                    await self._open_target_once(name)
-                else:
-                    await self._open_conversation(conversation_id)
-                return
-            except Exception as exc:
-                last_error = exc
-                if attempt < retries:
-                    await self.page.wait_for_timeout(RETRY_DELAY_MS)
-        if last_error is not None:
-            raise last_error
-        raise PageOperationError("打开聊天失败")
+    async def open_target(self, name: str, *, conversation_id: str | None = None) -> None:
+        if conversation_id is None:
+            await self._open_target_once(name)
+        else:
+            await self._open_conversation(conversation_id)
 
     async def _open_target_once(self, name: str) -> None:
         search = await first_visible(self.page, SEARCH_INPUTS, self.timeout_ms)
@@ -70,8 +56,13 @@ class DouyinChat:
         await search.fill(name)
         await self.page.wait_for_timeout(1_500)
 
-        result = await self._search_result(name)
-        if result is None:
+        # Results arrive over the network; a slow response is not a missing friend.
+        for _ in range(max(0, self.timeout_ms - 1_500) // 500 + 1):
+            result = await self._search_result(name)
+            if result is not None:
+                break
+            await self.page.wait_for_timeout(500)
+        else:
             raise TargetUnavailableError("搜索不到目标好友")
         await result.click(force=True)
         await self._confirm_opened(name)

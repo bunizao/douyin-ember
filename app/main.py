@@ -2,237 +2,193 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 import random
 import re
-import hashlib
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from app.browser import AuthenticationError, RiskControlError, SearchBoxNotReadyError, open_douyin, open_private_messages, save_trace, verify_login
+from app.browser import (
+    AuthenticationError,
+    BrowserSession,
+    RiskControlError,
+    open_douyin,
+    open_private_messages,
+    save_trace,
+    verify_login,
+)
 from app.config import ConfigError, discover_storage_state, load_settings, load_task, read_env
-from app.douyin import DouyinChat, PageOperationError, TargetUnavailableError
-from app.errors import classify_error, get_retry_strategy, should_stop_all_tasks
-from app.history import AlreadyRunningError, History, run_lock
-from app.metrics import Metrics, HistoricalMetrics, format_metrics_summary
-from app.models import Settings, Target, TargetResult
+from app.douyin import DouyinChat, TargetUnavailableError
+from app.history import AlreadyRunningError, History, run_date, run_lock
+from app.models import Settings, Target, TargetResult, TaskConfig
 from app.notifier import send_dingtalk_notification, send_webhook_notification
 from app.privacy import RedactingFormatter, build_target_aliases, redact_text, target_alias
-from app.progress import create_single_run_progress
-from app.sender import send_message
+from app.sender import NotSentError, send_message
 
 
 LOGGER = logging.getLogger("douyin_sender")
 
+# Errors that make every later step pointless; continuing would only add risk.
+FATAL_ERRORS = (AuthenticationError, RiskControlError, ConfigError)
+OPEN_RETRY_DELAY_SECONDS = 3.0
+ARTIFACT_RETENTION = timedelta(days=14)
+
 
 async def run(settings: Settings, dry_run: bool = False) -> int:
+    """Send the day's messages. Returns 0 when all succeed, 1 when any fails,
+    and 2 when the run stopped on a login, risk-control or config error."""
     task = load_task(settings)
     settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
     aliases = build_target_aliases(task.targets)
     _configure_logging(settings.artifacts_dir, aliases)
-
-    # 初始化监控指标
-    metrics = Metrics()
-    metrics.started_at = datetime.now().astimezone().isoformat()
-    start_time = time.time()
-
-    # 初始化进度显示
-    multi_stage, target_progress = create_single_run_progress(len(task.targets))
-
-    history = History(settings.artifacts_dir / "history.json")
-    run_date = history.run_date(task.timezone)
-    results: list[TargetResult] = []
-    screenshots: list[Path] = []
-    fatal_error: Exception | None = None
+    started = time.monotonic()
+    report = _Report(settings)
 
     try:
-        # 阶段1: 打开浏览器
-        multi_stage.start_stage(0)
         async with open_douyin(settings) as session:
-            page = session.page
-            trace_saved = False
-            multi_stage.finish_stage()
-
-            # 阶段2: 验证登录
-            multi_stage.start_stage(1)
+            report.session = session
             try:
-                await open_private_messages(page)
-                multi_stage.finish_stage()
+                await open_private_messages(session.page)
             except Exception as exc:
-                multi_stage.finish_stage()
-                LOGGER.exception("打开抖音私信页面失败")
-                screenshot = await _screenshot(page, settings.artifacts_dir, "login")
-                if screenshot:
-                    screenshots.append(screenshot)
-                if settings.trace and not trace_saved:
-                    try:
-                        await save_trace(session, _trace_path(settings.artifacts_dir))
-                        trace_saved = True
-                    except Exception:
-                        LOGGER.exception("保存 trace 失败")
                 label = "登录检查" if isinstance(exc, (AuthenticationError, RiskControlError)) else "运行检查"
-                results.append(TargetResult(target=label, status="failed", error=str(exc)))
-                metrics.record_target_failure(type(exc).__name__)
-                fatal_error = exc
-
-            # 阶段3: 发送消息
-            if fatal_error is None:
-                multi_stage.start_stage(2, total_items=len(task.targets))
-                chat = DouyinChat(page, timeout_ms=int(task.target_open_timeout_seconds * 1000))
-
-                for index, target in enumerate(task.targets):
-                    sent = 0
-                    alias = target_alias(index)
-                    target_progress.start_target(alias)
-                    message_start_time = time.time()
-
-                    try:
-                        LOGGER.info("处理好友: %s", alias)
-
-                        # 使用智能重试策略打开目标
-                        await _open_target_with_retry(chat, target, task.target_open_retries)
-
-                        if not dry_run:
-                            for message_index, message in enumerate(target.messages):
-                                message_id = _message_id(message_index, message)
-                                legacy_key = history.key(task.task_id, run_date, target.name, message_id)
-                                key = legacy_key
-                                if target.conversation_id is not None:
-                                    key = history.key(
-                                        task.task_id, run_date, f"conversation:{target.conversation_id}", message_id
-                                    )
-
-                                if task.prevent_duplicates and (
-                                    history.contains(key) or (legacy_key != key and history.contains(legacy_key))
-                                ):
-                                    LOGGER.info(
-                                        "跳过当天已处理或结果不确定的消息: %s #%d",
-                                        alias,
-                                        message_index + 1,
-                                    )
-                                    metrics.record_skipped_message()
-                                    continue
-
-                                msg_start = time.time()
-                                await verify_login(page, timeout_ms=3_000)
-                                if target.conversation_id is not None:
-                                    await chat.confirm_conversation_id(target.conversation_id)
-                                if task.prevent_duplicates:
-                                    history.reserve(key)
-                                await send_message(page, chat, message, task.stickers)
-                                msg_duration = time.time() - msg_start
-                                metrics.record_message_time(msg_duration)
-
-                                if task.prevent_duplicates:
-                                    history.mark_success(key)
-                                sent += 1
-
-                                if message_index < len(target.messages) - 1:
-                                    await asyncio.sleep(random.uniform(task.interval_min, task.interval_max))
-
-                        # 记录目标成功
-                        results.append(TargetResult(target=target.name, status="success", sent=sent, target_alias=alias))
-                        metrics.record_target_success(sent)
-                        target_progress.finish_target("success")
-
-                    except (AuthenticationError, RiskControlError) as exc:
-                        # 认证失效或风控，立即停止
-                        LOGGER.exception("处理好友时登录状态失效: %s", alias)
-                        screenshot = await _screenshot(page, settings.artifacts_dir, alias)
-                        if screenshot:
-                            screenshots.append(screenshot)
-                        if settings.trace and not trace_saved:
-                            try:
-                                await save_trace(session, _trace_path(settings.artifacts_dir))
-                                trace_saved = True
-                            except Exception:
-                                LOGGER.exception("保存 trace 失败")
-
-                        results.append(TargetResult(target=target.name, status="failed", sent=sent, error=str(exc), target_alias=alias))
-                        metrics.record_target_failure(type(exc).__name__, sent)
-                        target_progress.finish_target("failed")
-                        fatal_error = exc
-                        break
-
-                    except Exception as exc:
-                        # 其他错误，根据错误类型决定是否继续
-                        error_category = classify_error(exc)
-                        LOGGER.exception("好友处理失败: %s (错误类型: %s)", alias, error_category.value)
-
-                        screenshot = await _screenshot(page, settings.artifacts_dir, alias)
-                        if screenshot:
-                            screenshots.append(screenshot)
-                        if settings.trace and not trace_saved:
-                            try:
-                                await save_trace(session, _trace_path(settings.artifacts_dir))
-                                trace_saved = True
-                            except Exception:
-                                LOGGER.exception("保存 trace 失败")
-
-                        results.append(TargetResult(target=target.name, status="failed", sent=sent, error=str(exc), target_alias=alias))
-                        metrics.record_target_failure(type(exc).__name__, sent)
-                        target_progress.finish_target("failed")
-
-                        # 检查是否应该停止所有任务
-                        if should_stop_all_tasks(exc):
-                            LOGGER.warning("检测到严重错误，停止处理剩余好友")
-                            fatal_error = exc
-                            break
-
-                        if not task.continue_on_error and not isinstance(exc, TargetUnavailableError):
-                            break
-
-                    multi_stage.update_progress(1)
-
-                    if index < len(task.targets) - 1 and not dry_run:
-                        await asyncio.sleep(random.uniform(task.interval_min, task.interval_max))
-
-                multi_stage.finish_stage()
-
-            if settings.trace and not trace_saved:
-                try:
-                    await session.context.tracing.stop()
-                except Exception as exc:
-                    LOGGER.exception("停止 trace 失败")
-                    if fatal_error is None:
-                        fatal_error = exc
-                        results.append(TargetResult(target="运行收尾", status="failed", error=str(exc)))
-                        metrics.record_target_failure(type(exc).__name__)
+                await report.fail(label, exc, "login")
+            else:
+                await _send_all(session, task, report, dry_run)
+            await report.finish_trace()
     except Exception as exc:
-        if fatal_error is None:
-            fatal_error = exc
-            results.append(TargetResult(target="运行检查", status="failed", error=str(exc)))
-            metrics.record_target_failure(type(exc).__name__)
+        await report.fail("运行检查", exc, None)
 
-    # 完成指标统计
-    metrics.total_duration_seconds = time.time() - start_time
-    metrics.finalize()
-
-    # 保存指标
-    metrics.save(settings.artifacts_dir / "metrics.json")
-
-    # 更新历史指标
-    historical = HistoricalMetrics.load(settings.artifacts_dir / "metrics_history.json")
-    historical.update(metrics)
-    historical.save(settings.artifacts_dir / "metrics_history.json")
-
-    # 输出指标摘要
-    LOGGER.info("\n%s", format_metrics_summary(metrics))
-
-    _write_results(settings.artifacts_dir, task.task_id, dry_run, results, aliases)
-    await _notify_dingtalk(settings, task.task_id, dry_run, results, screenshots)
-    await _notify_webhook(settings, task.task_id, dry_run, results, screenshots)
-    succeeded = sum(result.status == "success" for result in results)
-    failed = sum(result.status == "failed" for result in results)
-    LOGGER.info("执行结束: 成功 %d，失败 %d", succeeded, failed)
-
-    if fatal_error is not None:
-        raise fatal_error
+    _write_results(settings.artifacts_dir, task.task_id, dry_run, report.results, aliases, time.monotonic() - started)
+    _prune_artifacts(settings.artifacts_dir)
+    await _notify_dingtalk(settings, task.task_id, dry_run, report.results, report.screenshots)
+    await _notify_webhook(settings, task.task_id, dry_run, report.results, report.screenshots)
+    succeeded = sum(result.status == "success" for result in report.results)
+    failed = len(report.results) - succeeded
+    LOGGER.info("执行结束: 成功 %d，失败 %d，耗时 %.0f 秒", succeeded, failed, time.monotonic() - started)
+    if report.stopped:
+        return 2
     return 1 if failed else 0
+
+
+async def _send_all(session: BrowserSession, task: TaskConfig, report: _Report, dry_run: bool) -> None:
+    page = session.page
+    chat = DouyinChat(page, timeout_ms=int(task.target_open_timeout_seconds * 1000))
+    history = History(report.settings.artifacts_dir / "history.json")
+    today = run_date(task.timezone)
+
+    for index, target in enumerate(task.targets):
+        if index and not dry_run:
+            await asyncio.sleep(random.uniform(task.interval_min, task.interval_max))
+        alias = target_alias(index)
+        LOGGER.info("处理好友: %s", alias)
+        sent = 0
+        try:
+            await _open_target(chat, target, task.target_open_retries)
+            for message_index, message in enumerate(() if dry_run else target.messages):
+                if message_index:
+                    await asyncio.sleep(random.uniform(task.interval_min, task.interval_max))
+                keys = _history_keys(history, task, today, target, message_index, message)
+                if task.prevent_duplicates and any(history.contains(key) for key in keys):
+                    LOGGER.info("跳过当天已处理或结果不确定的消息: %s #%d", alias, message_index + 1)
+                    continue
+                await verify_login(page, timeout_ms=3_000)
+                if target.conversation_id is not None:
+                    await chat.confirm_conversation_id(target.conversation_id)
+                if task.prevent_duplicates:
+                    history.reserve(keys[0])
+                try:
+                    await send_message(page, chat, message, task.stickers)
+                except NotSentError:
+                    # Nothing reached Douyin, so a later run today may retry it.
+                    if task.prevent_duplicates:
+                        history.release(keys[0])
+                    raise
+                if task.prevent_duplicates:
+                    history.mark_success(keys[0])
+                sent += 1
+            report.results.append(TargetResult(target=target.name, status="success", sent=sent, target_alias=alias))
+        except Exception as exc:
+            await report.fail(target.name, exc, alias, sent=sent, alias=alias)
+            if isinstance(exc, FATAL_ERRORS):
+                LOGGER.warning("登录失效或触发风控，停止处理剩余好友")
+                return
+            if not task.continue_on_error and not isinstance(exc, TargetUnavailableError):
+                return
+
+
+class _Report:
+    """Collects results and failure evidence for one run."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.session: BrowserSession | None = None
+        self.results: list[TargetResult] = []
+        self.screenshots: list[Path] = []
+        self.stopped = False
+        self._trace_done = not settings.trace
+
+    async def fail(
+        self,
+        target: str,
+        exc: Exception,
+        screenshot_label: str | None,
+        *,
+        sent: int = 0,
+        alias: str | None = None,
+    ) -> None:
+        LOGGER.error("%s 失败", alias or target, exc_info=exc)
+        self.stopped = self.stopped or isinstance(exc, FATAL_ERRORS)
+        self.results.append(TargetResult(target=target, status="failed", sent=sent, error=str(exc), target_alias=alias))
+        if self.session is None or screenshot_label is None:
+            return
+        screenshot = await _screenshot(self.session.page, self.settings.artifacts_dir, screenshot_label)
+        if screenshot:
+            self.screenshots.append(screenshot)
+        if not self._trace_done:
+            self._trace_done = True
+            try:
+                await save_trace(self.session, _trace_path(self.settings.artifacts_dir))
+            except Exception:
+                LOGGER.exception("保存 trace 失败")
+
+    async def finish_trace(self) -> None:
+        """Discard the trace of a run that needed none."""
+        if self._trace_done or self.session is None:
+            return
+        self._trace_done = True
+        try:
+            await self.session.context.tracing.stop()
+        except Exception:
+            LOGGER.exception("停止 trace 失败")
+
+
+async def _open_target(chat: DouyinChat, target: Target, retries: int) -> None:
+    """Open a chat, retrying page hiccups but never a missing friend or a login problem."""
+    for attempt in range(retries + 1):
+        try:
+            await chat.open_target(target.name, conversation_id=target.conversation_id)
+            return
+        except (TargetUnavailableError, *FATAL_ERRORS):
+            raise
+        except Exception as exc:
+            if attempt == retries:
+                raise
+            LOGGER.info("打开聊天失败 (第 %d/%d 次)，%.0f 秒后重试: %s", attempt + 1, retries + 1, OPEN_RETRY_DELAY_SECONDS, type(exc).__name__)
+            await asyncio.sleep(OPEN_RETRY_DELAY_SECONDS)
+
+
+def _history_keys(history: History, task: TaskConfig, today: str, target: Target, index: int, message) -> list[str]:
+    """The key to record first, then the legacy name key that also counts as sent."""
+    message_id = _message_id(index, message)
+    by_name = history.key(task.task_id, today, target.name, message_id)
+    if target.conversation_id is None:
+        return [by_name]
+    return [history.key(task.task_id, today, f"conversation:{target.conversation_id}", message_id), by_name]
 
 
 def main() -> int:
@@ -241,7 +197,7 @@ def main() -> int:
         settings = load_settings(discover_storage_state(read_env(args.env_file)))
         with run_lock(settings.artifacts_dir / "run.lock"):
             return asyncio.run(run(settings, dry_run=args.dry_run))
-    except (ConfigError, AuthenticationError, RiskControlError, SearchBoxNotReadyError, AlreadyRunningError) as exc:
+    except (ConfigError, AlreadyRunningError) as exc:
         print(f"错误: {exc}")
         return 2
     except KeyboardInterrupt:
@@ -266,8 +222,7 @@ def _configure_logging(
     if reset or not LOGGER.handlers:
         for handler in list(LOGGER.handlers):
             LOGGER.removeHandler(handler)
-            if isinstance(handler, logging.FileHandler):
-                handler.close()
+            handler.close()
         LOGGER.setLevel(logging.INFO)
         pattern = "%(asctime)s %(levelname)s %(message)s"
         if label:
@@ -283,7 +238,7 @@ def _configure_logging(
         LOGGER.addHandler(file_handler)
         LOGGER.addHandler(stream_handler)
         return
-    # 已有 handler（多账号模式下 run() 内部会再次调用）：只更新脱敏别名。
+    # Multi-account mode configures handlers first; run() only adds aliases.
     for handler in LOGGER.handlers:
         if isinstance(handler.formatter, RedactingFormatter):
             handler.formatter.aliases = dict(aliases or {})
@@ -310,11 +265,13 @@ def _write_results(
     dry_run: bool,
     results: list[TargetResult],
     aliases: dict[str, str] | None = None,
+    duration_seconds: float = 0.0,
 ) -> None:
     payload = {
         "task_id": task_id,
         "dry_run": dry_run,
         "finished_at": datetime.now().astimezone().isoformat(),
+        "duration_seconds": round(duration_seconds, 1),
         "results": [_redacted_result(result, aliases) for result in results],
     }
     (artifacts_dir / "result.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -329,6 +286,18 @@ def _redacted_result(result: TargetResult, aliases: dict[str, str] | None = None
         "sent": result.sent,
         "error": redact_text(result.error, aliases) if result.error else None,
     }
+
+
+def _prune_artifacts(artifacts_dir: Path) -> None:
+    """Delete failure screenshots and traces older than the retention window."""
+    cutoff = time.time() - ARTIFACT_RETENTION.total_seconds()
+    for pattern in ("screenshots/*.png", "traces/*.zip"):
+        for path in artifacts_dir.glob(pattern):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+            except OSError:
+                LOGGER.warning("清理旧产物失败: %s", path.name)
 
 
 async def _notify_dingtalk(
@@ -385,51 +354,3 @@ def _trace_path(artifacts_dir: Path) -> Path:
 def _message_id(index, message) -> str:
     payload = json.dumps(asdict(message), ensure_ascii=False, sort_keys=True, default=str)
     return f"{index}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:12]}"
-
-
-async def _open_target_with_retry(chat: DouyinChat, target: Target, max_retries: int) -> None:
-    """Open a configured recipient with the existing error-aware retry policy."""
-    last_exception = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            await chat.open_target(target.name, retries=0, conversation_id=target.conversation_id)
-            return
-        except Exception as exc:
-            last_exception = exc
-
-            # 获取错误的重试策略
-            strategy = get_retry_strategy(exc)
-            category = classify_error(exc)
-
-            if attempt >= max_retries:
-                # 达到最大重试次数
-                LOGGER.warning(
-                    "打开目标失败，已达最大重试次数 %d (错误类型: %s)",
-                    max_retries,
-                    category.value,
-                )
-                break
-
-            if not strategy.should_retry(attempt):
-                # 策略判断不应重试（如永久性错误）
-                LOGGER.warning(
-                    "打开目标失败，错误类型 %s 不建议重试",
-                    category.value,
-                )
-                break
-
-            # 计算重试延迟
-            delay = strategy.get_delay(attempt)
-            LOGGER.info(
-                "打开目标失败 (尝试 %d/%d)，%s 秒后重试 (错误类型: %s)",
-                attempt + 1,
-                max_retries + 1,
-                delay,
-                category.value,
-            )
-            await asyncio.sleep(delay)
-
-    # 所有重试都失败，抛出最后一个异常
-    if last_exception:
-        raise last_exception

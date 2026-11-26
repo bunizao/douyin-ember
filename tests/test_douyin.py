@@ -168,54 +168,23 @@ async def test_search_result_rejects_containing_name_for_group_rule() -> None:
 
 
 @pytest.mark.asyncio
-async def test_open_target_retries_after_failed_first_attempt() -> None:
+async def test_slow_search_results_are_awaited_before_giving_up(monkeypatch) -> None:
     page = MagicMock()
     page.wait_for_timeout = AsyncMock()
+    search = MagicMock()
+    search.click = AsyncMock()
+    search.fill = AsyncMock()
+    monkeypatch.setattr("app.douyin.first_visible", AsyncMock(return_value=search))
+    result = MagicMock()
+    result.click = AsyncMock()
     chat = DouyinChat(page)
-    calls = {"n": 0}
+    chat._search_result = AsyncMock(side_effect=[None, None, result])
+    chat._confirm_opened = AsyncMock()
 
-    async def flaky(name: str) -> None:
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise PageOperationError("首次失败")
+    await chat._open_target_once("好友A")
 
-    chat._open_target_once = flaky
-
-    await chat.open_target("好友A", retries=1)
-
-    assert calls["n"] == 2
-
-
-@pytest.mark.asyncio
-async def test_open_target_raises_after_retries_exhausted() -> None:
-    page = MagicMock()
-    page.wait_for_timeout = AsyncMock()
-    chat = DouyinChat(page)
-
-    async def fail(name: str) -> None:
-        raise PageOperationError("始终失败")
-
-    chat._open_target_once = fail
-
-    with pytest.raises(PageOperationError, match="始终失败"):
-        await chat.open_target("好友A", retries=1)
-
-    assert page.wait_for_timeout.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_open_target_succeeds_without_retry() -> None:
-    page = MagicMock()
-    chat = DouyinChat(page)
-
-    async def ok(name: str) -> None:
-        return None
-
-    chat._open_target_once = ok
-
-    await chat.open_target("好友A", retries=1)
-
-    page.wait_for_timeout.assert_not_called()
+    result.click.assert_awaited_once()
+    chat._confirm_opened.assert_awaited_once_with("好友A")
 
 
 @pytest.mark.asyncio
@@ -479,7 +448,7 @@ async def test_conversation_id_survives_rename_and_rejects_wrong_active_chat() -
             """)
             chat = DouyinChat(page, timeout_ms=1_500)
 
-            await chat.open_target("Old nickname", retries=0, conversation_id="target-id")
+            await chat.open_target("Old nickname", conversation_id="target-id")
             assert await page.locator("header").inner_text() == "New nickname"
 
             await page.get_by_role("button", name="Old nickname").click()
@@ -487,6 +456,6 @@ async def test_conversation_id_survives_rename_and_rejects_wrong_active_chat() -
                 await chat.confirm_conversation_id("target-id")
 
             with pytest.raises(TargetUnavailableError, match="configured ID"):
-                await chat.open_target("Old nickname", retries=0, conversation_id="missing-id")
+                await chat.open_target("Old nickname", conversation_id="missing-id")
         finally:
             await browser.close()

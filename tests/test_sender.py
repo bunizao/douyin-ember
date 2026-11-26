@@ -219,7 +219,7 @@ async def test_random_message_delegates_to_selected_choice(monkeypatch) -> None:
     await send_message(page, chat, message, {})
 
     page.keyboard.insert_text.assert_awaited_once_with("你好")
-    page.keyboard.press.assert_awaited_once_with("Enter")
+    assert [call.args[0] for call in page.keyboard.press.await_args_list] == ["ControlOrMeta+A", "Backspace", "Enter"]
 
 
 @pytest.mark.asyncio
@@ -447,6 +447,7 @@ async def test_sticker_resource_key_ignores_signed_query_string() -> None:
 async def test_send_text_confirms_outgoing_message_without_retry(monkeypatch) -> None:
     page = MagicMock()
     page.keyboard.insert_text = AsyncMock()
+    page.keyboard.press = AsyncMock()
     page.wait_for_function = AsyncMock()
     page.wait_for_timeout = AsyncMock()
     editor = MagicMock()
@@ -482,6 +483,7 @@ async def test_send_text_confirms_outgoing_message_without_retry(monkeypatch) ->
 async def test_send_text_raises_when_confirmation_fails(monkeypatch) -> None:
     page = MagicMock()
     page.keyboard.insert_text = AsyncMock()
+    page.keyboard.press = AsyncMock()
     page.wait_for_function = AsyncMock()
     page.wait_for_timeout = AsyncMock()
     editor = MagicMock()
@@ -1049,3 +1051,39 @@ async def test_real_image_pending_then_success(monkeypatch, tmp_path) -> None:
         await sender_module.send_image(page, img.as_posix())
     finally:
         await _teardown_real_page(page)
+
+
+@pytest.mark.asyncio
+async def test_send_text_replaces_a_stale_draft() -> None:
+    from playwright.async_api import async_playwright
+
+    from app.douyin import DouyinChat
+    from app.sender import send_text
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.set_content(
+                '<div class="messageEditorinputArea" contenteditable="true" data-contents="true">昨天没发出去</div>'
+            )
+            with pytest.raises(Exception):
+                # No send button or message list: confirmation fails after typing.
+                await send_text(DouyinChat(page, timeout_ms=500), "今天")
+            assert (await page.locator("[contenteditable]").inner_text()).strip() == "今天"
+        finally:
+            await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_sticker_is_reported_as_not_sent(monkeypatch) -> None:
+    from app.models import Sticker
+    from app.sender import NotSentError, send_douyin_sticker
+
+    page = MagicMock()
+    monkeypatch.setattr("app.sender._mark_latest_outgoing_message", AsyncMock(return_value=("anchor", "")))
+    monkeypatch.setattr("app.sender._restore_composer", AsyncMock())
+    monkeypatch.setattr("app.sender.first_visible", AsyncMock(side_effect=PageOperationError("找不到页面元素")))
+
+    with pytest.raises(NotSentError):
+        await send_douyin_sticker(page, Sticker(name="比心"))

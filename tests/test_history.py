@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from app.history import AlreadyRunningError, History, run_lock
+from app.history import AlreadyRunningError, History, run_date, run_lock
 
 
 def test_history_persists_success(tmp_path: Path) -> None:
     path = tmp_path / "history.json"
     history = History(path)
-    key = history.key("task", history.run_date("Asia/Shanghai"), "好友A", "0-abc")
+    key = history.key("task", run_date("Asia/Shanghai"), "好友A", "0-abc")
 
     history.mark_success(key)
 

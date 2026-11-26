@@ -13,16 +13,17 @@ class AlreadyRunningError(RuntimeError):
     pass
 
 
+def run_date(timezone: str) -> str:
+    try:
+        return datetime.now(ZoneInfo(timezone)).date().isoformat()
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"未知时区: {timezone}，请安装 tzdata 或修正配置") from exc
+
+
 class History:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.entries = self._load()
-
-    def run_date(self, timezone: str) -> str:
-        try:
-            return datetime.now(ZoneInfo(timezone)).date().isoformat()
-        except ZoneInfoNotFoundError as exc:
-            raise ValueError(f"未知时区: {timezone}，请安装 tzdata 或修正配置") from exc
 
     def key(self, task_id: str, run_date: str, target: str, message_id: str) -> str:
         return f"{task_id}:{run_date}:{target}:{message_id}"
@@ -32,6 +33,10 @@ class History:
 
     def reserve(self, key: str) -> None:
         self.entries[key] = {"status": "unknown", "started_at": datetime.now().astimezone().isoformat()}
+        self._save()
+
+    def release(self, key: str) -> None:
+        self.entries.pop(key, None)
         self._save()
 
     def mark_success(self, key: str) -> None:
