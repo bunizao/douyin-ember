@@ -17,10 +17,10 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync --locked --no-dev \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends cron libatomic1 tzdata xauth \
+    && uv sync --locked --no-dev \
     && python -m playwright install --with-deps chromium \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends cron tzdata xauth \
     && rm -rf /var/lib/apt/lists/*
 
 COPY app ./app
