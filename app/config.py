@@ -67,7 +67,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         headless=_parse_bool(env.get("HEADLESS", "false"), "HEADLESS"),
         browser_path=optional("BROWSER_PATH"),
         artifacts_dir=Path(env.get("ARTIFACTS_DIR") or "artifacts").expanduser(),
-        trace=_parse_bool(env.get("TRACE", "true"), "TRACE"),
+        trace=_parse_bool(env.get("TRACE", "false"), "TRACE"),
         dingtalk_webhook=dingtalk_webhook,
         dingtalk_secret=dingtalk_secret,
         webhook_url=optional("WEBHOOK_URL"),
