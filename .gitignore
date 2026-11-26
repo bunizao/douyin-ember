@@ -1,12 +1,10 @@
 .env
 .env.account*
-!.env.account.example
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-artifacts/*
-!artifacts/.gitkeep
+artifacts/
 config/tasks.json
 config/accounts.json
 config/tasks/
