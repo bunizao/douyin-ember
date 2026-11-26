@@ -1,8 +1,4 @@
 """Webhook 配置解析测试。"""
-import os
-from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 
 from app.config import load_settings, ConfigError, _parse_webhook_headers
@@ -51,32 +47,25 @@ def test_parse_webhook_headers_invalid_keyvalue():
         _parse_webhook_headers("invalid_no_equals")
 
 
-def test_load_settings_with_webhook(tmp_path):
-    """测试加载 Webhook 配置。"""
-    config_file = tmp_path / "config.json"
-    config_file.write_text('{"friends": [], "messages": []}')
-
-    with patch.dict(os.environ, {
-        "TASK_CONFIG": str(config_file),
+def test_load_settings_with_webhook():
+    settings = load_settings({
         "WEBHOOK_URL": "https://example.com/webhook",
         "WEBHOOK_HEADERS": '{"Authorization": "Bearer token"}',
         "WEBHOOK_TEMPLATE": '{"text": "test"}',
-    }, clear=True):
-        settings = load_settings()
-        assert settings.webhook_url == "https://example.com/webhook"
-        assert settings.webhook_headers == {"Authorization": "Bearer token"}
-        assert settings.webhook_template == '{"text": "test"}'
+    })
+    assert settings.webhook_url == "https://example.com/webhook"
+    assert settings.webhook_headers == {"Authorization": "Bearer token"}
+    assert settings.webhook_template == '{"text": "test"}'
 
 
-def test_load_settings_webhook_optional(tmp_path):
-    """测试 Webhook 配置可选。"""
-    config_file = tmp_path / "config.json"
-    config_file.write_text('{"friends": [], "messages": []}')
+def test_load_settings_webhook_optional():
+    settings = load_settings({})
+    assert settings.webhook_url is None
+    assert settings.webhook_headers is None
+    assert settings.webhook_template is None
 
-    with patch.dict(os.environ, {
-        "TASK_CONFIG": str(config_file),
-    }, clear=True):
-        settings = load_settings()
-        assert settings.webhook_url is None
-        assert settings.webhook_headers is None
-        assert settings.webhook_template is None
+
+@pytest.mark.parametrize("template", ['{"text": broken}', '["not", "an", "object"]'])
+def test_invalid_webhook_template_fails_at_load(template):
+    with pytest.raises(ConfigError, match="WEBHOOK_TEMPLATE"):
+        load_settings({"WEBHOOK_TEMPLATE": template})

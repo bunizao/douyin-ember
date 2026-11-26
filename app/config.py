@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from app.models import Message, Settings, Sticker, Target, TaskConfig
 
@@ -14,37 +14,64 @@ class ConfigError(ValueError):
     pass
 
 
-def load_settings(env_file: str | Path | None = None) -> Settings:
-    load_dotenv(dotenv_path=env_file)
-    task_path = Path(os.getenv("TASK_CONFIG", "config.json")).expanduser()
-    artifacts_dir = Path(os.getenv("ARTIFACTS_DIR", "artifacts")).expanduser()
-    default_state = Path("storage-state.json")
-    profile = _optional_env("BROWSER_USER_DATA_DIR")
-    cookie = _optional_env("DOUYIN_COOKIE")
-    storage_state = _optional_env("DOUYIN_STORAGE_STATE") or (str(default_state) if default_state.is_file() else None)
+AUTH_KEYS = ("DOUYIN_COOKIE", "DOUYIN_STORAGE_STATE", "BROWSER_USER_DATA_DIR")
+DEFAULT_STORAGE_STATE = Path("storage-state.json")
+
+
+def read_env(env_file: str | Path | None = None) -> dict[str, str]:
+    """Return the process environment layered over a .env file.
+
+    Process variables win, as with ``load_dotenv(override=False)``. Without an
+    explicit file, ``.env`` in the working directory is used when present.
+    """
+    path = Path(env_file) if env_file else Path(".env")
+    if env_file and not path.is_file():
+        raise ConfigError(f"环境文件不存在: {path}")
+    values = dotenv_values(path) if path.is_file() else {}
+    return {**{key: value for key, value in values.items() if value is not None}, **os.environ}
+
+
+def discover_storage_state(env: dict[str, str]) -> dict[str, str]:
+    """Use ./storage-state.json (written by scripts/login.py) when no login is configured."""
+    if any(_optional_string(env.get(key)) for key in AUTH_KEYS) or not DEFAULT_STORAGE_STATE.is_file():
+        return env
+    return {**env, "DOUYIN_STORAGE_STATE": str(DEFAULT_STORAGE_STATE)}
+
+
+def load_settings(env: Mapping[str, str]) -> Settings:
+    def optional(name: str) -> str | None:
+        return _optional_string(env.get(name))
+
+    profile = optional("BROWSER_USER_DATA_DIR")
+    cookie = optional("DOUYIN_COOKIE")
+    storage_state = optional("DOUYIN_STORAGE_STATE")
     if profile and (cookie or storage_state):
         raise ConfigError("BROWSER_USER_DATA_DIR cannot be combined with DOUYIN_COOKIE or DOUYIN_STORAGE_STATE")
-    dingtalk_webhook = _optional_env("DINGTALK_WEBHOOK")
-    dingtalk_secret = _optional_env("DINGTALK_SECRET")
+    dingtalk_webhook = optional("DINGTALK_WEBHOOK")
+    dingtalk_secret = optional("DINGTALK_SECRET")
     if bool(dingtalk_webhook) != bool(dingtalk_secret):
         raise ConfigError("DINGTALK_WEBHOOK 和 DINGTALK_SECRET 必须同时配置")
-
-    webhook_url = _optional_env("WEBHOOK_URL")
-    webhook_headers = _parse_webhook_headers(_optional_env("WEBHOOK_HEADERS"))
-    webhook_template = _optional_env("WEBHOOK_TEMPLATE")
+    webhook_template = optional("WEBHOOK_TEMPLATE")
+    if webhook_template is not None:
+        try:
+            template = json.loads(webhook_template)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"WEBHOOK_TEMPLATE 不是有效 JSON: {exc}") from exc
+        if not isinstance(template, dict):
+            raise ConfigError("WEBHOOK_TEMPLATE 必须是 JSON 对象")
 
     return Settings(
-        task_config_path=task_path,
+        task_config_path=Path(env.get("TASK_CONFIG") or "config.json").expanduser(),
         storage_state=storage_state,
         cookie=cookie,
-        headless=_parse_bool(os.getenv("HEADLESS", "false"), "HEADLESS"),
-        browser_path=_optional_env("BROWSER_PATH"),
-        artifacts_dir=artifacts_dir,
-        trace=_parse_bool(os.getenv("TRACE", "true"), "TRACE"),
+        headless=_parse_bool(env.get("HEADLESS", "false"), "HEADLESS"),
+        browser_path=optional("BROWSER_PATH"),
+        artifacts_dir=Path(env.get("ARTIFACTS_DIR") or "artifacts").expanduser(),
+        trace=_parse_bool(env.get("TRACE", "true"), "TRACE"),
         dingtalk_webhook=dingtalk_webhook,
         dingtalk_secret=dingtalk_secret,
-        webhook_url=webhook_url,
-        webhook_headers=webhook_headers,
+        webhook_url=optional("WEBHOOK_URL"),
+        webhook_headers=_parse_webhook_headers(optional("WEBHOOK_HEADERS")),
         webhook_template=webhook_template,
         browser_user_data_dir=Path(profile).expanduser() if profile else None,
     )
@@ -243,10 +270,6 @@ def _non_empty_string(value: Any, label: str) -> str:
 
 def _optional_string(value: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
-
-
-def _optional_env(name: str) -> str | None:
-    return _optional_string(os.getenv(name))
 
 
 def _number(value: Any, label: str) -> float:

@@ -8,13 +8,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.browser import AuthenticationError, open_douyin, open_private_messages
-from app.config import ConfigError, load_settings
+from app.config import ConfigError, load_settings, read_env
 from app.history import run_lock
 from app.selectors import DOUYIN_CHAT_URL
 
 
 async def login() -> None:
-    settings = replace(load_settings(), trace=False)
+    settings = replace(load_settings(read_env()), trace=False)
     if not settings.browser_user_data_dir:
         raise ConfigError("Set BROWSER_USER_DATA_DIR before logging in")
     settings.artifacts_dir.mkdir(parents=True, exist_ok=True)

@@ -3,30 +3,45 @@ from pathlib import Path
 
 import pytest
 
-from app.config import ConfigError, load_settings, load_task
+from app.config import ConfigError, discover_storage_state, load_settings, load_task, read_env
 from app.models import Settings
 
 
-def test_loads_persistent_profile_without_cookie(monkeypatch, tmp_path) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BROWSER_USER_DATA_DIR", str(tmp_path / "profile"))
-    monkeypatch.delenv("DOUYIN_COOKIE", raising=False)
-    monkeypatch.delenv("DOUYIN_STORAGE_STATE", raising=False)
-
-    settings = load_settings(tmp_path / "missing.env")
+def test_loads_persistent_profile_without_cookie(tmp_path) -> None:
+    settings = load_settings({"BROWSER_USER_DATA_DIR": str(tmp_path / "profile")})
 
     assert settings.browser_user_data_dir == tmp_path / "profile"
     assert settings.cookie is None
     assert settings.storage_state is None
 
 
-def test_rejects_importing_cookie_into_persistent_profile(monkeypatch, tmp_path) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BROWSER_USER_DATA_DIR", str(tmp_path / "profile"))
-    monkeypatch.setenv("DOUYIN_COOKIE", "cookie.json")
-
+def test_rejects_importing_cookie_into_persistent_profile(tmp_path) -> None:
     with pytest.raises(ConfigError, match="BROWSER_USER_DATA_DIR"):
-        load_settings(tmp_path / "missing.env")
+        load_settings({"BROWSER_USER_DATA_DIR": str(tmp_path / "profile"), "DOUYIN_COOKIE": "cookie.json"})
+
+
+def test_storage_state_file_is_discovered_only_without_other_login(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "storage-state.json").write_text("{}", encoding="utf-8")
+
+    assert discover_storage_state({})["DOUYIN_STORAGE_STATE"] == "storage-state.json"
+    assert "DOUYIN_STORAGE_STATE" not in discover_storage_state({"DOUYIN_COOKIE": "cookie.json"})
+    assert "DOUYIN_STORAGE_STATE" not in discover_storage_state({"BROWSER_USER_DATA_DIR": "profile"})
+
+
+def test_read_env_prefers_process_over_file(monkeypatch, tmp_path) -> None:
+    env_file = tmp_path / "custom.env"
+    env_file.write_text("HEADLESS=false\nTASK_CONFIG=from-file.json\n", encoding="utf-8")
+    monkeypatch.setenv("HEADLESS", "true")
+
+    env = read_env(env_file)
+
+    assert (env["HEADLESS"], env["TASK_CONFIG"]) == ("true", "from-file.json")
+
+
+def test_read_env_rejects_missing_explicit_file(tmp_path) -> None:
+    with pytest.raises(ConfigError, match="环境文件不存在"):
+        read_env(tmp_path / "missing.env")
 
 
 def settings_for(path: Path) -> Settings:

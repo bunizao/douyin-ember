@@ -39,7 +39,7 @@ async def test_login_waits_for_callback_before_navigating(monkeypatch, tmp_path,
         assert settings.trace is False
         yield SimpleNamespace(page=page, context=context)
 
-    monkeypatch.setattr(module, "load_settings", lambda: Settings(
+    monkeypatch.setattr(module, "load_settings", lambda _env: Settings(
         task_config_path=tmp_path / "config.json", storage_state=None, cookie=None,
         headless=False, browser_path=None, trace=True,
         browser_user_data_dir=tmp_path / "profile", artifacts_dir=tmp_path / "artifacts",

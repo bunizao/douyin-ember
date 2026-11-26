@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.browser import AuthenticationError, RiskControlError, SearchBoxNotReadyError, open_douyin, open_private_messages, save_trace, verify_login
-from app.config import ConfigError, load_settings, load_task
+from app.config import ConfigError, discover_storage_state, load_settings, load_task, read_env
 from app.douyin import DouyinChat, PageOperationError, TargetUnavailableError
 from app.errors import classify_error, get_retry_strategy, should_stop_all_tasks
 from app.history import AlreadyRunningError, History, run_lock
@@ -29,15 +29,11 @@ from app.sender import send_message
 LOGGER = logging.getLogger("douyin_sender")
 
 
-async def run(dry_run: bool = False, env_file: str | None = None) -> int:
-    settings = load_settings(env_file)
+async def run(settings: Settings, dry_run: bool = False) -> int:
     task = load_task(settings)
     settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
     aliases = build_target_aliases(task.targets)
     _configure_logging(settings.artifacts_dir, aliases)
-
-    if not settings.storage_state and not settings.cookie and not settings.browser_user_data_dir:
-        raise ConfigError("必须配置 DOUYIN_STORAGE_STATE 或 DOUYIN_COOKIE")
 
     # 初始化监控指标
     metrics = Metrics()
@@ -242,9 +238,9 @@ async def run(dry_run: bool = False, env_file: str | None = None) -> int:
 def main() -> int:
     args = _parse_cli_args()
     try:
-        settings = load_settings(args.env_file)
+        settings = load_settings(discover_storage_state(read_env(args.env_file)))
         with run_lock(settings.artifacts_dir / "run.lock"):
-            return asyncio.run(run(dry_run=args.dry_run, env_file=args.env_file))
+            return asyncio.run(run(settings, dry_run=args.dry_run))
     except (ConfigError, AuthenticationError, RiskControlError, SearchBoxNotReadyError, AlreadyRunningError) as exc:
         print(f"错误: {exc}")
         return 2

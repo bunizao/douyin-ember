@@ -75,6 +75,8 @@ async def open_douyin(settings: Settings) -> AsyncIterator[BrowserSession]:
     playwright: Playwright | None = None
     browser: Browser | None = None
     context: BrowserContext | None = None
+    if not (settings.browser_user_data_dir or settings.storage_state or settings.cookie):
+        raise ConfigError("必须配置 DOUYIN_STORAGE_STATE、DOUYIN_COOKIE 或 BROWSER_USER_DATA_DIR")
     try:
         playwright = await async_playwright().start()
         launch_args = {"headless": settings.headless}

@@ -56,7 +56,6 @@ async def test_authentication_failure_stops_remaining_targets_and_notifies(monke
     chat = MagicMock()
     chat.open_target = AsyncMock()
     notify = AsyncMock()
-    monkeypatch.setattr(main_module, "load_settings", lambda _env=None: settings)
     monkeypatch.setattr(main_module, "load_task", lambda _settings: task)
     monkeypatch.setattr(main_module, "History", MagicMock(return_value=history))
     monkeypatch.setattr(main_module, "open_douyin", fake_open_douyin)
@@ -69,7 +68,7 @@ async def test_authentication_failure_stops_remaining_targets_and_notifies(monke
     monkeypatch.setattr(main_module, "_configure_logging", lambda _path, _aliases=None: None)
 
     with pytest.raises(AuthenticationError, match="登录失效"):
-        await main_module.run()
+        await main_module.run(settings)
 
     # 新的实现使用 _open_target_with_retry() 包装器，内部调用时 retries=0
     chat.open_target.assert_awaited_once_with("好友A", retries=0, conversation_id=None)
@@ -89,7 +88,6 @@ async def test_browser_start_failure_still_notifies(monkeypatch, tmp_path) -> No
     history = MagicMock()
     history.run_date.return_value = "2026-08-09"
     notify = AsyncMock()
-    monkeypatch.setattr(main_module, "load_settings", lambda _env=None: settings)
     monkeypatch.setattr(main_module, "load_task", lambda _settings: _task())
     monkeypatch.setattr(main_module, "History", MagicMock(return_value=history))
     monkeypatch.setattr(main_module, "open_douyin", broken_open_douyin)
@@ -98,7 +96,7 @@ async def test_browser_start_failure_still_notifies(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(main_module, "_configure_logging", lambda _path, _aliases=None: None)
 
     with pytest.raises(RuntimeError, match="浏览器启动失败"):
-        await main_module.run()
+        await main_module.run(settings)
 
     results = notify.await_args.args[3]
     assert [(result.target, result.status) for result in results] == [("运行检查", "failed")]
@@ -135,7 +133,6 @@ async def test_waits_between_consecutive_messages_for_same_friend(monkeypatch, t
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr(main_module, "load_settings", lambda _env=None: settings)
     monkeypatch.setattr(main_module, "load_task", lambda _settings: task)
     monkeypatch.setattr(main_module, "History", MagicMock(return_value=history))
     monkeypatch.setattr(main_module, "open_douyin", fake_open_douyin)
@@ -149,7 +146,7 @@ async def test_waits_between_consecutive_messages_for_same_friend(monkeypatch, t
     monkeypatch.setattr(main_module, "_notify_dingtalk", AsyncMock())
     monkeypatch.setattr(main_module, "_configure_logging", lambda _path, _aliases=None: None)
 
-    assert await main_module.run() == 0
+    assert await main_module.run(settings) == 0
     assert send_message.await_count == 2
     assert sleeps == [0.5]
 
@@ -182,7 +179,6 @@ async def test_missing_conversation_does_not_block_later_recipients(monkeypatch,
     chat.open_target = AsyncMock(side_effect=[None, TargetUnavailableError("not found"), None])
     chat.confirm_conversation_id = AsyncMock()
     send_message = AsyncMock()
-    monkeypatch.setattr(main_module, "load_settings", lambda _env: settings)
     monkeypatch.setattr(main_module, "load_task", lambda _settings: task)
     monkeypatch.setattr(main_module, "open_douyin", fake_open_douyin)
     monkeypatch.setattr(main_module, "open_private_messages", AsyncMock())
@@ -191,7 +187,7 @@ async def test_missing_conversation_does_not_block_later_recipients(monkeypatch,
     monkeypatch.setattr(main_module, "_screenshot", AsyncMock(return_value=None))
     monkeypatch.setattr(main_module, "send_message", send_message)
 
-    assert await main_module.run() == 1
+    assert await main_module.run(settings) == 1
     assert [call.kwargs["conversation_id"] for call in chat.open_target.await_args_list] == ["id-1", "id-2", "id-3"]
     chat.confirm_conversation_id.assert_awaited_once_with("id-3")
     send_message.assert_awaited_once()

@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.config import load_settings
+from app.config import load_settings, read_env
 from app.models import TargetResult
 from app.notifier import send_webhook_notification
 
@@ -20,7 +20,7 @@ from app.notifier import send_webhook_notification
 async def test_webhook():
     """测试 Webhook 通知发送。"""
     try:
-        settings = load_settings()
+        settings = load_settings(read_env())
     except Exception as e:
         print(f"❌ 配置加载失败: {e}")
         return 1

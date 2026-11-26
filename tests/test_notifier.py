@@ -58,12 +58,9 @@ def test_markdown_lists_successes_failures_and_screenshots(monkeypatch) -> None:
     assert "https://github.com/owner/repo/actions/runs/123" in markdown
 
 
-def test_dingtalk_webhook_and_secret_must_be_configured_together(monkeypatch) -> None:
-    monkeypatch.setenv("DINGTALK_WEBHOOK", "https://oapi.dingtalk.com/robot/send?access_token=token")
-    monkeypatch.delenv("DINGTALK_SECRET", raising=False)
-
+def test_dingtalk_webhook_and_secret_must_be_configured_together() -> None:
     with pytest.raises(ConfigError, match="必须同时配置"):
-        load_settings()
+        load_settings({"DINGTALK_WEBHOOK": "https://oapi.dingtalk.com/robot/send?access_token=token"})
 
 
 def test_markdown_shows_real_name_even_with_alias() -> None:

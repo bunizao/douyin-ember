@@ -8,12 +8,10 @@ from urllib.parse import urlsplit
 
 from playwright.async_api import async_playwright
 
-from app.config import load_settings
 from app.selectors import DOUYIN_CHAT_URL
 
 
 async def main() -> None:
-    settings = load_settings()
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
