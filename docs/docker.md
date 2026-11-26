@@ -2,12 +2,7 @@
 
 本教程介绍如何使用 Docker 部署 `douyin-auto-fire`，支持单账号、多账号、钉钉通知和容器内 Cron 定时运行。
 
-项目提供两套公共镜像：
-
-- 国内环境推荐：`docker.cnb.cool/1mev/douyin-auto-fire:latest`
-- 海外环境推荐：`ghcr.io/unmev/douyin-auto-fire:latest`
-
-两套镜像内容一致，只是镜像仓库不同。Python、Playwright、Chromium 和项目代码都已经封装进镜像，**Docker 部署不需要下载完整源码仓库**。
+Fork image: `ghcr.io/bunizao/douyin-auto-fire:latest`. Use `docker login ghcr.io` if the package requires authentication.
 
 > 第一次使用建议先配置 1 个账号、1 个好友、1 条文字消息，并先执行 Dry Run。单账号确认正常后，再增加多账号、原生表情、随机消息或钉钉通知。
 
@@ -24,32 +19,8 @@ cd ~/douyin-auto-fire
 
 ## 2. 下载 Compose 文件
 
-### 国内服务器（推荐）
-
-只从 CNB 下载一个 `docker-compose.yml`：
-
 ```bash
-curl -fL https://cnb.cool/1mev/douyin-auto-fire/-/git/raw/main/docker-compose.yml -o docker-compose.yml
-```
-
-国内版默认使用：
-
-```text
-docker.cnb.cool/1mev/douyin-auto-fire:latest
-```
-
-整个 Docker 部署过程不需要 `git clone` 完整仓库。
-
-### 海外服务器
-
-```bash
-curl -fL https://raw.githubusercontent.com/unmev/douyin-auto-fire/main/docker-compose.global.yml -o docker-compose.yml
-```
-
-海外版默认使用：
-
-```text
-ghcr.io/unmev/douyin-auto-fire:latest
+curl -fL https://raw.githubusercontent.com/bunizao/douyin-auto-fire/main/docker-compose.yml -o docker-compose.yml
 ```
 
 ---
@@ -266,17 +237,6 @@ docker compose ps
 docker compose logs -f
 ```
 
-国内版会拉取：
-
-```text
-docker.cnb.cool/1mev/douyin-auto-fire:latest
-```
-
-海外版会拉取：
-
-```text
-ghcr.io/unmev/douyin-auto-fire:latest
-```
 
 ---
 
@@ -506,20 +466,9 @@ docker compose up -d
 
 如果 Compose 文件本身有更新，可以重新下载。
 
-国内：
-
 ```bash
-curl -fL https://cnb.cool/1mev/douyin-auto-fire/-/git/raw/main/docker-compose.yml -o docker-compose.yml
-docker compose pull
-docker compose up -d
-```
-
-海外：
-
-```bash
-curl -fL https://raw.githubusercontent.com/unmev/douyin-auto-fire/main/docker-compose.global.yml -o docker-compose.yml
-docker compose pull
-docker compose up -d
+curl -fL https://raw.githubusercontent.com/bunizao/douyin-auto-fire/main/docker-compose.yml -o docker-compose.yml
+docker compose up -d --pull always
 ```
 
 本地 Cookie、任务配置、`.env` 和 `artifacts/` 不会因为更新镜像而丢失。
@@ -593,30 +542,3 @@ docker compose logs --tail=200
 或对应账号的 `run.log`。
 
 ---
-
-## 14. 国内 / 海外镜像说明
-
-国内镜像：
-
-```text
-docker.cnb.cool/1mev/douyin-auto-fire:latest
-```
-
-海外镜像：
-
-```text
-ghcr.io/unmev/douyin-auto-fire:latest
-```
-
-GitHub Actions 会在相关代码更新时自动构建并同时推送到 GHCR 和 CNB。CNB 同时提供国内下载 `docker-compose.yml` 的地址，Docker 用户无需克隆完整源码。
-
----
-
-## 注意事项
-
-- Cookie、账号环境文件和钉钉机器人密钥都属于敏感信息，不要提交到公开仓库。
-- 同一个抖音账号不要同时运行多个实例，避免重复发送。
-- 多账号会串行执行，不是同时开启多个浏览器并发发送。
-- 服务器网络环境可能触发抖音安全验证。
-- Cookie 失效后需要重新导出并替换对应账号的 Cookie 文件。
-- `artifacts/` 中的日志、截图和 Trace 可能包含聊天相关信息，请勿随意公开。

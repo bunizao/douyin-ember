@@ -4,9 +4,8 @@ This deployment uses Docker Compose and a host systemd timer. It keeps the
 browser profile, task configuration, and send history on the host. Local login
 and dry-run checks should use the same profile as the timer.
 
-Copy the files in this directory into ~/douyin-auto-fire or another private
-directory. The example systemd service expects /opt/douyin-auto-fire. Set
-DOUYIN_IMAGE in .env to a verified image and include both Compose files:
+Copy the deployment files into `/opt/douyin-auto-fire` and copy `.env.example`
+to `.env`. Set `DOUYIN_IMAGE` to a verified image tag or digest:
 
     COMPOSE_FILE=compose.yaml:compose.profile.yaml
     DOUYIN_IMAGE=ghcr.io/bunizao/douyin-auto-fire:latest
@@ -14,7 +13,7 @@ DOUYIN_IMAGE in .env to a verified image and include both Compose files:
 Keep config.json, .env, and the browser profile private. Compose also expects
 cookie.json to exist. An empty JSON array is enough in profile mode.
 
-With the timer stopped, open the profile login helper:
+With the timer stopped, run `docker compose pull` and open the profile login helper:
 
     docker compose run --rm --no-deps --entrypoint xvfb-run douyin-auto-fire \
       --auth-file=/tmp/douyin.xauth --server-num=99 \

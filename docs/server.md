@@ -46,27 +46,20 @@ sudo useradd --system \
 ## 4. 下载项目
 
 ```bash
-sudo git clone https://github.com/unmev/douyin-auto-fire.git /opt/douyin-auto-sender
+sudo git clone https://github.com/bunizao/douyin-auto-fire.git /opt/douyin-auto-sender
 sudo chown -R douyin-sender:douyin-sender /opt/douyin-auto-sender
 cd /opt/douyin-auto-sender
 ```
 
-国内服务器如果访问 GitHub 较慢，也可以使用 CNB 国内同步仓库：
-
-```bash
-sudo git clone https://cnb.cool/1mev/douyin-auto-fire.git /opt/douyin-auto-sender
-```
-
-GitHub 仍然是主仓库，CNB 用于国内加速。
 
 ---
 
 ## 5. 创建虚拟环境并安装依赖
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and make it available to the service account.
+
 ```bash
-sudo -u douyin-sender -H python3 -m venv /opt/douyin-auto-sender/.venv
-sudo -u douyin-sender -H /opt/douyin-auto-sender/.venv/bin/python -m pip install --upgrade pip
-sudo -u douyin-sender -H /opt/douyin-auto-sender/.venv/bin/pip install -r /opt/douyin-auto-sender/requirements.txt
+sudo -u douyin-sender -H uv sync --locked --no-dev
 ```
 
 安装 Chromium 系统依赖和浏览器：
@@ -473,15 +466,12 @@ sudo -u douyin-sender -H /opt/douyin-auto-sender/.venv/bin/python /opt/douyin-au
 
 ## 16. 更新项目
 
-GitHub 源：
-
 ```bash
 cd /opt/douyin-auto-sender
 sudo -u douyin-sender -H git pull
-sudo -u douyin-sender -H .venv/bin/pip install -r requirements.txt
+sudo -u douyin-sender -H uv sync --locked --no-dev
 ```
 
-如果使用 CNB clone，`git pull` 同样即可。
 
 Playwright 版本变化后建议：
 

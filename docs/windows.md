@@ -43,7 +43,7 @@ git --version
 ## 3. 下载项目
 
 ```powershell
-git clone https://github.com/unmev/douyin-auto-fire.git
+git clone https://github.com/bunizao/douyin-auto-fire.git
 cd douyin-auto-fire
 ```
 
@@ -55,26 +55,15 @@ C:\douyin-auto-fire
 
 ---
 
-## 4. 创建虚拟环境
+## 4. Install uv
 
-```powershell
-py -3.11 -m venv .venv
-```
-
-如果只有一个 Python：
-
-```powershell
-python -m venv .venv
-```
-
----
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and open a new PowerShell window.
 
 ## 5. 安装依赖和 Chromium
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m playwright install chromium
+uv sync --locked --no-dev
+uv run --locked --no-dev playwright install chromium
 ```
 
 ---
@@ -474,7 +463,7 @@ Get-Content .\artifacts\account2\run.log -Tail 100
 ```powershell
 cd C:\douyin-auto-fire
 git pull
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+uv sync --locked --no-dev
 ```
 
 Playwright 版本变化后：

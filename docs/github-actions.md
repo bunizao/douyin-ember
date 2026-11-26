@@ -12,7 +12,7 @@
 
 打开项目仓库：
 
-**https://github.com/unmev/douyin-auto-fire**
+**https://github.com/bunizao/douyin-auto-fire**
 
 点击右上角 **Fork**，将项目 Fork 到自己的 GitHub 账号。
 
@@ -355,7 +355,7 @@ https://api.github.com/repos/你的GitHub用户名/douyin-auto-fire/actions/work
 例如原项目仓库对应的地址是：
 
 ```text
-https://api.github.com/repos/unmev/douyin-auto-fire/actions/workflows/send.yml/dispatches
+https://api.github.com/repos/bunizao/douyin-auto-fire/actions/workflows/send.yml/dispatches
 ```
 
 如果使用的是自己 Fork 的仓库，必须将 `unmev` 换成你自己的 GitHub 用户名。
