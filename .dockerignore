@@ -17,3 +17,4 @@ runtime-image.tar.gz*
 runtime-image.json*
 artifacts/
 *.log
+.playwright/

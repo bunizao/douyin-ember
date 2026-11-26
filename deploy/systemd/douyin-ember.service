@@ -1,17 +1,18 @@
 [Unit]
-Description=Douyin Auto Sender
+Description=Douyin Ember
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=douyin-sender
-Group=douyin-sender
-WorkingDirectory=/opt/douyin-auto-sender
+User=douyin-ember
+Group=douyin-ember
+WorkingDirectory=/opt/douyin-ember
 Environment=HEADLESS=true
-ExecStart=/opt/douyin-auto-sender/.venv/bin/python run.py
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/douyin-ember/.playwright
+ExecStart=/opt/douyin-ember/.venv/bin/python run.py
 TimeoutStartSec=60min
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/douyin-auto-sender/artifacts
+ReadWritePaths=/opt/douyin-ember/artifacts

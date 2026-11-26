@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Douyin Auto Sender Daily
+Description=Run Douyin Ember Daily
 
 [Timer]
 OnCalendar=*-*-* 08:00:00
